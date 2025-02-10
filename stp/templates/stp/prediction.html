@@ -449,107 +449,513 @@
 </style>
 {% endblock %} {% block extra_js %}
 <script>
-  let myBarChart;
-  let tableData = [];
-  let selectedLocation = {
-    state: null,
-    district: null,
-    subDistrict: null,
-    villages: [],
+    // Global variables
+let myBarChart;
+let tableData = [];
+let selectedLocation = {
+  state: null,
+  district: null,
+  subDistrict: null,
+  villages: [],
+};
+let selectedCategories = [];
+let currentBoundary = null;
+let map;
+
+// Map initialization
+function initMap() {
+  map = L.map("map").setView([20.5937, 78.9629], 5);
+  
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors",
+  }).addTo(map);
+}
+
+// Clear existing boundary
+function clearBoundary() {
+  if (currentBoundary) {
+    map.removeLayer(currentBoundary);
+    currentBoundary = null;
+  }
+  if (map.popup) {
+    map.removeLayer(map.popup);
+  }
+}
+
+// Load default boundary
+async function loadDefaultBoundary() {
+  try {
+    const response = await fetch("/stp/get_boundary/");
+    const data = await response.json();
+
+    if (data.coordinates && map) {
+      clearBoundary();
+      const geojson = {
+        type: "Feature",
+        geometry: {
+          type: "Polygon",
+          coordinates: data.coordinates,
+        },
+      };
+
+      currentBoundary = L.geoJSON(geojson, {
+        style: {
+          color: "#76ba1b",
+          weight: 2,
+          opacity: 1,
+          fillColor: "#76ba1b",
+          fillOpacity: 0.2,
+        },
+      }).addTo(map);
+
+      map.fitBounds(currentBoundary.getBounds(), {
+        padding: [50, 50],
+      });
+    }
+  } catch (error) {
+    console.error("Error loading default boundary:", error);
+  }
+}
+
+// Initialize map on page load
+document.addEventListener("DOMContentLoaded", function () {
+  // Add Leaflet CSS
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+  document.head.appendChild(link);
+
+  // Add Leaflet JS
+  const script = document.createElement("script");
+  script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+  script.onload = function () {
+    initMap();
+    loadDefaultBoundary();
   };
-  let selectedCategories = [];
-  let currentBoundary = null;
-  let table_value = [];
-  let map;
-  let boundaryLayer;
+  document.head.appendChild(script);
+  
+  // Initialize form elements and event listeners
+  initializeFormElements();
+});
 
-  function initMap() {
-    // Initialize the map centered on India
-    map = L.map("map").setView([20.5937, 78.9629], 5);
+// Utility Functions
+function getCSRFToken() {
+  return document.querySelector("[name=csrfmiddlewaretoken]")?.value || "";
+}
 
-    // Add OpenStreetMap tile layer
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors",
-    }).addTo(map);
+function resetDropdown(dropdown) {
+  dropdown.innerHTML = '<option value="">--Choose an option--</option>';
+  dropdown.disabled = true;
+}
 
-    // Initialize an empty GeoJSON layer for boundaries
-    boundaryLayer = L.geoJSON(null, {
-      style: {
-        color: "#76ba1b",
-        weight: 2,
-        opacity: 1,
-        fillColor: "#76ba1b",
-        fillOpacity: 0.2,
+function populateDropdown(dropdown, items) {
+  dropdown.innerHTML = '<option value="">--Choose an option--</option>';
+  items.forEach((item) => {
+    const option = document.createElement("option");
+    option.dataset.state = item.state;
+    option.dataset.district = item.district;
+    option.dataset.subDistrict = item.subdistrict;
+    option.value = item.id;
+    option.textContent = item.name;
+    dropdown.appendChild(option);
+  });
+  dropdown.disabled = false;
+}
+
+// Village Selection Handler
+function handleVillageSelection(event) {
+  const villageName = event.target.id;
+  if (event.target.checked) {
+    selectedLocation.villages.push(villageName);
+  } else {
+    selectedLocation.villages = selectedLocation.villages.filter(
+      (v) => v !== villageName
+    );
+  }
+}
+
+// Category Selection Handler
+function updateSelectedList() {
+  selectedCategories = [];
+  for (let i = 1; i <= 7; i++) {
+    const checkbox = document.getElementById(`check${i}`);
+    if (checkbox.checked) {
+      selectedCategories.push(getCategoryName(i));
+    }
+  }
+}
+
+function getCategoryName(index) {
+  const categories = {
+    1: "sewage_gap",
+    2: "mean_temperature",
+    3: "mean_rainfall",
+    4: "number_of_tourists",
+    5: "number_of_asi_sites",
+    6: "gdp_at_current_prices",
+    7: "water_quality_index"
+  };
+  return categories[index];
+}
+
+// Form submission and table handling
+async function submitForm(event) {
+  event.preventDefault();
+  try {
+    const response = await fetch("/stp/table/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
       },
-    }).addTo(map);
+      body: JSON.stringify({
+        main_data: selectedLocation,
+        categories: selectedCategories,
+      }),
+    });
+    const tableData = await response.json();
+    updateTable(tableData);
+  } catch (error) {
+    console.error("Error fetching table data:", error);
+  }
+}
+
+// Table Update Logic
+function updateTable(data) {
+  tableData = [...data];
+  const headerRow = document.getElementById("headerRow");
+  const tableBody = document.getElementById("tableBody");
+  
+  headerRow.innerHTML = "";
+  tableBody.innerHTML = "";
+  
+  // Add headers
+  Object.keys(data[0] || {}).forEach((key) => {
+    const th = document.createElement("th");
+    th.textContent = key
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+    headerRow.appendChild(th);
+  });
+  
+  // Add data rows with editable cells
+  data.forEach((row, rowIndex) => {
+    const tr = document.createElement("tr");
+    Object.entries(row).forEach(([key, value]) => {
+      const td = document.createElement("td");
+      td.className = "editable";
+      td.dataset.field = key;
+      td.dataset.rowIndex = rowIndex;
+      td.dataset.originalValue = value;
+      
+      td.textContent = formatCellValue(value, key);
+      addEditableCell(td);
+      tr.appendChild(td);
+    });
+    tableBody.appendChild(tr);
+  });
+}
+
+function formatCellValue(value, field) {
+  if (typeof value !== 'number') return value;
+  return field.includes("temperature") || field.includes("rainfall") 
+    ? value.toFixed(2)
+    : value.toLocaleString();
+}
+
+function addEditableCell(cell) {
+  cell.addEventListener("dblclick", function(e) {
+    if (this.querySelector("input")) return;
+    
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = this.dataset.originalValue;
+    input.className = "form-control";
+    
+    const originalContent = this.innerHTML;
+    this.innerHTML = "";
+    this.appendChild(input);
+    input.focus();
+    
+    const handleUpdate = () => {
+      const newValue = input.value;
+      const field = this.dataset.field;
+      const rowIdx = parseInt(this.dataset.rowIndex);
+      
+      try {
+        const processedValue = validateAndProcessValue(newValue, field);
+        tableData[rowIdx][field] = processedValue;
+        this.dataset.originalValue = processedValue;
+        this.textContent = formatCellValue(processedValue, field);
+      } catch (error) {
+        alert(error.message);
+        this.innerHTML = originalContent;
+      }
+    };
+    
+    input.addEventListener("blur", handleUpdate);
+    input.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") input.blur();
+    });
+  });
+}
+
+function validateAndProcessValue(value, field) {
+  if (field.includes("temperature") || field.includes("rainfall")) {
+    if (isNaN(value)) throw new Error("Please enter a valid number");
+    return parseFloat(value);
+  } 
+  if (field.includes("tourists") || field.includes("sites") || field.includes("gap")) {
+    if (isNaN(value) || !Number.isInteger(Number(value))) 
+      throw new Error("Please enter a valid whole number");
+    return parseInt(value);
+  }
+  return value;
+}
+
+// Rankings chart handling
+async function ranking(event) {
+  event.preventDefault();
+  try {
+    const response = await fetch("/stp/get_rankings/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCSRFToken(),
+      },
+      body: JSON.stringify({ tableData }),
+    });
+
+    if (!response.ok) throw new Error("Network response was not ok");
+    
+    const data = await response.json();
+    updateBarChart(data);
+  } catch (error) {
+    console.error("Error during ranking:", error);
+    alert("Failed to process ranking. Please try again.");
+  }
+}
+
+function updateBarChart(data) {
+  document.getElementById("myBarChart").style.display = "block";
+  const ctx = document.getElementById("myBarChart").getContext("2d");
+  
+  if (myBarChart) myBarChart.destroy();
+  
+  myBarChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: data.map(item => item.name),
+      datasets: [{
+        label: "Rank",
+        data: data.map(item => item.rank),
+        backgroundColor: data.map(() => generateRandomColor(0.2)),
+        borderColor: data.map(() => generateRandomColor(1)),
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { ticks: { maxRotation: 45, minRotation: 45 } },
+        y: { beginAtZero: true },
+      },
+      plugins: {
+        legend: { display: true, position: "top" },
+      },
+    },
+  });
+}
+
+function generateRandomColor(alpha) {
+  const r = Math.floor(Math.random() * 256);
+  const g = Math.floor(Math.random() * 256);
+  const b = Math.floor(Math.random() * 256);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Location dropdowns initialization and handling
+async function initializeLocationDropdowns(stateDropdown, districtDropdown, subDistrictDropdown, villageCheckboxesContainer, showOnMapButton) {
+  // Fetch initial states
+  try {
+    const stateResponse = await fetch("/stp/get_states/");
+    const states = await stateResponse.json();
+    populateDropdown(stateDropdown, states);
+  } catch (error) {
+    console.error("Error fetching states:", error);
+    alert("Failed to load states. Please refresh the page.");
   }
 
-  async function loadDefaultBoundary() {
+  // Function to update boundary on map
+  async function updateBoundaryOnMap() {
+    clearBoundary();
     try {
-      const response = await fetch("/stp/get_default_boundary/");
-      const data = await response.json();
+      const boundaryResponse = await fetch("/stp/get_boundary/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCSRFToken(),
+        },
+        body: JSON.stringify({
+          state: selectedLocation.state,
+          district: selectedLocation.district,
+          sub_district: selectedLocation.subDistrict,
+          villages: selectedLocation.villages,
+        }),
+      });
 
-      if (data.coordinates && map) {
-        clearBoundary();
-
-        // Convert coordinates to GeoJSON format
-        const geojson = {
-          type: "Feature",
-          geometry: {
-            type: "Polygon",
-            coordinates: data.coordinates,
-          },
-        };
-
-        // Add the GeoJSON to the map
-        currentBoundary = L.geoJSON(geojson, {
-          style: {
-            color: "#76ba1b",
-            weight: 2,
-            opacity: 1,
-            fillColor: "#76ba1b",
-            fillOpacity: 0.2,
-          },
+      const boundaryData = await boundaryResponse.json();
+      if (boundaryData.coordinates) {
+        currentBoundary = L.polygon(boundaryData.coordinates, {
+          color: "blue",
+          fillColor: "#30f",
+          fillOpacity: 0.2,
         }).addTo(map);
 
-        // Fit map to boundary
-        map.fitBounds(currentBoundary.getBounds(), {
-          padding: [50, 50],
-        });
+        map.fitBounds(currentBoundary.getBounds());
+
+        currentBoundary
+          .bindPopup(`
+            State: ${selectedLocation.state || "Not Selected"}<br>
+            District: ${selectedLocation.district || "Not Selected"}<br>
+            Sub-District: ${selectedLocation.subDistrict || "Not Selected"}<br>
+            Villages: ${selectedLocation.villages.join(", ") || "None Selected"}
+          `)
+          .openPopup();
       }
     } catch (error) {
-      console.error("Error loading default boundary:", error);
+      console.error("Error fetching boundary:", error);
     }
   }
 
-  function clearBoundary() {
-    if (currentBoundary) {
-      map.removeLayer(currentBoundary);
-    }
-    if (map.popup) {
-      map.removeLayer(map.popup);
-    }
-  }
+  // State Dropdown Change Event
+  stateDropdown.addEventListener("change", async function() {
+    const selectedOption = this.options[this.selectedIndex];
+    const state_id = selectedOption.dataset.state;
+    selectedLocation.state = this.options[this.selectedIndex].text;
+    
+    resetDropdown(districtDropdown);
+    resetDropdown(subDistrictDropdown);
+    clearBoundary();
 
-  // Initialize map
-  document.addEventListener("DOMContentLoaded", function () {
-    // Add Leaflet CSS
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-    document.head.appendChild(link);
+    if (!state_id) return;
 
-    // Add Leaflet JS
-    const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    script.onload = function () {
-      initMap();
-      loadDefaultBoundary();
-    };
-    document.head.appendChild(script);
+    try {
+      const districtResponse = await fetch("/stp/get_districts/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCSRFToken(),
+        },
+        body: JSON.stringify({ state: state_id }),
+      });
+      const districts = await districtResponse.json();
+      populateDropdown(districtDropdown, districts);
+      
+      // Update boundary after state selection
+      await updateBoundaryOnMap();
+    } catch (error) {
+      console.error("Error fetching districts:", error);
+      alert("Failed to load districts. Please try again.");
+    }
   });
 
-  async function showBoundaries() {
+  // District Dropdown Change Event
+  districtDropdown.addEventListener("change", async function() {
+    const selectedOption = this.options[this.selectedIndex];
+    const district_id = selectedOption.dataset.district;
+    const state_id = selectedOption.dataset.state;
+    selectedLocation.district = this.options[this.selectedIndex].text;
+
+    resetDropdown(subDistrictDropdown);
+    clearBoundary();
+
+    if (!district_id) return;
+
+    try {
+      const subDistrictResponse = await fetch("/stp/get_sub_districts/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCSRFToken(),
+        },
+        body: JSON.stringify({ district: district_id, state: state_id }),
+      });
+      const subDistricts = await subDistrictResponse.json();
+      populateDropdown(subDistrictDropdown, subDistricts);
+      
+      // Update boundary after district selection
+      await updateBoundaryOnMap();
+    } catch (error) {
+      console.error("Error fetching sub-districts:", error);
+      alert("Failed to load sub-districts. Please try again.");
+    }
+  });
+
+  // Sub-District Dropdown Change Event
+  subDistrictDropdown.addEventListener("change", async function() {
+    const selectedOption = this.options[this.selectedIndex];
+    const sub_dis_id = selectedOption.dataset.subDistrict;
+    const district_id = selectedOption.dataset.district;
+    const state_id = selectedOption.dataset.state;
+    villageCheckboxesContainer.innerHTML = "";
+    selectedLocation.subDistrict = this.options[this.selectedIndex].text;
+
+    clearBoundary();
+
+    if (!sub_dis_id) {
+      selectedLocation.subDistrict = null;
+      await updateBoundaryOnMap();
+      return;
+    }
+
+    try {
+      const villageResponse = await fetch("/stp/get_villages/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCSRFToken(),
+        },
+        body: JSON.stringify({
+          state: state_id,
+          district: district_id,
+          sub_district: sub_dis_id,
+        }),
+      });
+      const villages = await villageResponse.json();
+
+      // Create village checkboxes
+      villages.forEach((village) => {
+        const listItem = document.createElement("li");
+        listItem.classList.add("form-check");
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.classList.add("form-check-input");
+        checkbox.id = `village-${village.id}`;
+        checkbox.value = village.name;
+
+        const label = document.createElement("label");
+        label.classList.add("form-check-label");
+        label.htmlFor = `village-${village.id}`;
+        label.textContent = village.name;
+
+        checkbox.addEventListener("change", handleVillageSelection);
+
+        listItem.appendChild(checkbox);
+        listItem.appendChild(label);
+        villageCheckboxesContainer.appendChild(listItem);
+      });
+      
+      // Update boundary after sub-district selection
+      await updateBoundaryOnMap();
+    } catch (error) {
+      console.error("Error fetching villages:", error);
+      alert("Failed to load villages. Please try again.");
+    }
+  });
+
+  // Show Boundaries Button Event
+  showOnMapButton.addEventListener("click", async function() {
     clearBoundary();
 
     try {
@@ -570,49 +976,22 @@
       const boundaryData = await boundaryResponse.json();
 
       if (boundaryData.coordinates) {
-        // Convert coordinates to GeoJSON format
-        const geojson = {
-          type: "Feature",
-          geometry: {
-            type: "Polygon",
-            coordinates: boundaryData.coordinates,
-          },
-        };
-
-        // Add the GeoJSON to the map
-        currentBoundary = L.geoJSON(geojson, {
-          style: {
-            color: "blue",
-            weight: 2,
-            opacity: 1,
-            fillColor: "blue",
-            fillOpacity: 0.2,
-          },
+        currentBoundary = L.polygon(boundaryData.coordinates, {
+          color: "blue",
+          fillColor: "#30f",
+          fillOpacity: 0.2,
         }).addTo(map);
 
-        // Create popup content
-        const popupContent = `
-        State: ${selectedLocation.state || "Not Selected"}<br>
-        District: ${selectedLocation.district || "Not Selected"}<br>
-        Sub-District: ${selectedLocation.subDistrict || "Not Selected"}<br>
-        Villages: ${selectedLocation.villages.join(", ") || "None Selected"}
-      `;
+        map.fitBounds(currentBoundary.getBounds());
 
-        // Add popup at the center of the boundary
-        const bounds = currentBoundary.getBounds();
-        const center = bounds.getCenter();
-        map.popup = L.popup({
-          closeButton: false,
-          closeOnClick: false,
-        })
-          .setLatLng(center)
-          .setContent(popupContent)
-          .addTo(map);
-
-        // Fit map to boundary
-        map.fitBounds(bounds, {
-          padding: [50, 50],
-        });
+        currentBoundary
+          .bindPopup(`
+            State: ${selectedLocation.state || "Not Selected"}<br>
+            District: ${selectedLocation.district || "Not Selected"}<br>
+            Sub-District: ${selectedLocation.subDistrict || "Not Selected"}<br>
+            Villages: ${selectedLocation.villages.join(", ") || "None Selected"}
+          `)
+          .openPopup();
       } else {
         alert("No boundary data available for the selected location.");
       }
@@ -620,551 +999,30 @@
       console.error("Error fetching boundary:", error);
       alert("Failed to fetch location boundary. Please try again.");
     }
-  }
-  // Utility Functions
-  function getCSRFToken() {
-    return document.querySelector("[name=csrfmiddlewaretoken]")?.value || "";
-  }
-
-  function resetDropdown(dropdown) {
-    dropdown.innerHTML = '<option value="">--Choose an option--</option>';
-    dropdown.disabled = true;
-  }
-  function handleVillageSelection(event) {
-    const villageName = event.target.id;
-    console.log("village  unique id is ", villageName);
-
-    if (event.target.checked) {
-      selectedLocation.villages.push(villageName);
-    } else {
-      selectedLocation.villages = selectedLocation.villages.filter(
-        (v) => v !== villageName
-      );
-    }
-  }
-
-  function updateSelectedList() {
-    if (document.getElementById("check1").checked)
-      selectedCategories.push("Sewage Gap");
-    if (document.getElementById("check2").checked)
-      selectedCategories.push("Mean Temperature");
-    if (document.getElementById("check3").checked)
-      selectedCategories.push("Mean Rainfall");
-    if (document.getElementById("check4").checked)
-      selectedCategories.push("Number of Tourists");
-    if (document.getElementById("check5").checked)
-      selectedCategories.push("Number of ASI Sites");
-    if (document.getElementById("check6").checked)
-      selectedCategories.push("GDDP at Current Price");
-    if (document.getElementById("check7").checked)
-      selectedCategories.push("Water Quality Index");
-  }
-  async function submitForm(event) {
-    event.preventDefault();
-    let selectedCategories = [];
-    if (document.getElementById("check1").checked)
-      selectedCategories.push("sewage_gap");
-    if (document.getElementById("check2").checked)
-      selectedCategories.push("mean_temperature");
-    if (document.getElementById("check3").checked)
-      selectedCategories.push("mean_rainfall");
-    if (document.getElementById("check4").checked)
-      selectedCategories.push("number_of_tourists");
-    if (document.getElementById("check5").checked)
-      selectedCategories.push("number_of_asi_sites");
-    if (document.getElementById("check6").checked)
-      selectedCategories.push("gdp_at_current_prices");
-    if (document.getElementById("check7").checked)
-      selectedCategories.push("water_quality_index");
-    console.log("selectedCategories before try is ", selectedCategories);
-    console.log("before the table is ", selectedLocation);
-    try {
-      const table_data = await fetch("/stp/table/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          main_data: selectedLocation,
-          categories: selectedCategories,
-        }),
-      });
-      table_value = await table_data.json();
-      // upfate_table(table_value)
-      updateTable(table_value);
-      console.log("table_data", table_value);
-    } catch (error) {
-      console.log("fetch table error", error);
-    }
-  }
-  function updateTable(data) {
-    // Store the initial data
-    tableData = [...data];
-
-    const headerRow = document.getElementById("headerRow");
-    const tableBody = document.getElementById("tableBody");
-
-    // Clear existing content
-    headerRow.innerHTML = "";
-    tableBody.innerHTML = "";
-
-    // Add headers
-    Object.keys(data[0] || {}).forEach((key) => {
-      const th = document.createElement("th");
-      th.textContent = key
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (l) => l.toUpperCase());
-      headerRow.appendChild(th);
-    });
-
-    // Add data rows
-    data.forEach((row, rowIndex) => {
-      const tr = document.createElement("tr");
-      Object.entries(row).forEach(([key, value]) => {
-        const td = document.createElement("td");
-        td.className = "editable";
-        td.dataset.field = key;
-        td.dataset.rowIndex = rowIndex;
-        td.dataset.originalValue = value;
-
-        // Format the value based on the field type
-        if (typeof value === "number") {
-          td.textContent =
-            key.includes("temperature") || key.includes("rainfall")
-              ? value.toFixed(2)
-              : value.toLocaleString();
-        } else {
-          td.textContent = value;
-        }
-
-        // Add double-click event listener for editing
-        td.addEventListener("dblclick", function (e) {
-          if (this.querySelector("input")) return;
-
-          const input = document.createElement("input");
-          input.type = "text";
-          input.value = this.dataset.originalValue;
-          input.className = "form-control";
-
-          const originalContent = this.innerHTML;
-          this.innerHTML = "";
-          this.appendChild(input);
-          input.focus();
-
-          const handleUpdate = () => {
-            const newValue = input.value;
-            const field = this.dataset.field;
-            const rowIdx = parseInt(this.dataset.rowIndex);
-
-            try {
-              // Validate the input based on field type
-              let processedValue;
-              if (field.includes("temperature") || field.includes("rainfall")) {
-                if (isNaN(newValue))
-                  throw new Error("Please enter a valid number");
-                processedValue = parseFloat(newValue);
-              } else if (
-                field.includes("tourists") ||
-                field.includes("sites") ||
-                field.includes("gap")
-              ) {
-                if (isNaN(newValue) || !Number.isInteger(Number(newValue)))
-                  throw new Error("Please enter a valid whole number");
-                processedValue = parseInt(newValue);
-              } else {
-                processedValue = newValue;
-              }
-
-              // Update the tableData array
-              tableData[rowIdx][field] = processedValue;
-
-              // Update the cell display
-              this.dataset.originalValue = processedValue;
-              this.textContent =
-                typeof processedValue === "number"
-                  ? field.includes("temperature") || field.includes("rainfall")
-                    ? processedValue.toFixed(2)
-                    : processedValue.toLocaleString()
-                  : processedValue;
-            } catch (error) {
-              alert(error.message);
-              this.innerHTML = originalContent;
-            }
-          };
-
-          input.addEventListener("blur", handleUpdate);
-          input.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") input.blur();
-          });
-        });
-
-        tr.appendChild(td);
-      });
-      tableBody.appendChild(tr);
-    });
-  }
-
-  async function ranking(event) {
-    event.preventDefault();
-    console.log(tableData);
-
-    try {
-      const response = await fetch("/stp/get_rankings/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": getCSRFToken(),
-        },
-        body: JSON.stringify({ tableData }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Network response was not ok");
-      }
-      document.getElementById("myBarChart").style.display = "block";
-
-      const data = await response.json();
-      const labels = data.map((item) => item.name);
-      const ranks = data.map((item) => item.rank);
-
-      console.log("ok");
-      const ctx = document.getElementById("myBarChart").getContext("2d");
-      console.log("okay2");
-
-      // Destroy the previous chart instance if it exists
-      if (myBarChart) {
-        myBarChart.destroy();
-      }
-      console.log("delete chart");
-      myBarChart = new Chart(ctx, {
-        type: "bar",
-        data: {
-          labels: labels,
-          datasets: [
-            {
-              label: "Rank",
-              data: ranks,
-              backgroundColor: ranks.map(
-                () =>
-                  `rgba(${Math.floor(Math.random() * 256)}, ${Math.floor(
-                    Math.random() * 256
-                  )}, ${Math.floor(Math.random() * 256)}, 0.2)`
-              ),
-              borderColor: ranks.map(
-                () =>
-                  `rgba(${Math.floor(Math.random() * 256)}, ${Math.floor(
-                    Math.random() * 256
-                  )}, ${Math.floor(Math.random() * 256)}, 1)`
-              ),
-              borderWidth: 1,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          scales: {
-            x: {
-              ticks: { maxRotation: 45, minRotation: 45 },
-            },
-            y: { beginAtZero: true },
-          },
-          plugins: {
-            legend: { display: true, position: "top" },
-          },
-        },
-      });
-    } catch (error) {
-      console.error("Error during ranking:", error);
-      alert("Failed to process ranking. Please try again.");
-    }
-  }
-  function populateDropdown(dropdown, items) {
-    dropdown.innerHTML = '<option value="">--Choose an option--</option>';
-    items.forEach((item) => {
-      const option = document.createElement("option");
-      option.dataset.state = item.state;
-      option.dataset.district = item.district;
-      option.dataset.subDistrict = item.subdistrict;
-      option.value = item.id;
-      option.textContent = item.name;
-      dropdown.appendChild(option);
-    });
-    dropdown.disabled = false;
-  }
-
-  // Remove existing boundary if any
-  function clearBoundary() {
-    if (currentBoundary) {
-      map.removeLayer(currentBoundary);
-      currentBoundary = null;
-    }
-  }
-
-  function initializeMap() {
-    const map = L.map("map").setView([20.5937, 78.9629], 5);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18,
-    }).addTo(map);
-
-    // Load and display default shape
-    fetch("/stp/get_default_boundary/", {
-      method: "GET",
-      headers: {
-        "X-CSRFToken": getCSRFToken(),
-      },
-    })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.coordinates) {
-          currentBoundary = L.polygon(data.coordinates, {
-            color: "#76ba1b",
-            fillColor: "#76ba1b",
-            fillOpacity: 0.2,
-            weight: 2,
-          }).addTo(map);
-          map.fitBounds(currentBoundary.getBounds());
-        }
-      })
-      .catch((error) =>
-        console.error("Error loading default boundary:", error)
-      );
-  }
-  document.addEventListener("DOMContentLoaded", async function () {
-    const stateDropdown = document.getElementById("state-dropdown");
-    const districtDropdown = document.getElementById("district-dropdown");
-    const subDistrictDropdown = document.getElementById(
-      "sub_district-dropdown"
-    );
-    const villageDiv = document.getElementById("village");
-    const villageDropdown = document.getElementById("villageDropdown");
-    const villageCheckboxesContainer = document.getElementById(
-      "villageCheckboxesContainer"
-    );
-    const showOnMapButton = document.getElementById("showOnMapButton");
-
-    document
-      .getElementById("check1")
-      .addEventListener("change", updateSelectedList);
-    document
-      .getElementById("check2")
-      .addEventListener("change", updateSelectedList);
-    document
-      .getElementById("check3")
-      .addEventListener("change", updateSelectedList);
-    document
-      .getElementById("check4")
-      .addEventListener("change", updateSelectedList);
-    document
-      .getElementById("check5")
-      .addEventListener("change", updateSelectedList);
-    document
-      .getElementById("check6")
-      .addEventListener("change", updateSelectedList);
-    document
-      .getElementById("check7")
-      .addEventListener("change", updateSelectedList);
-    window.onload = function () {
-      document.getElementById("check1").checked = false;
-      document.getElementById("check2").checked = false;
-      document.getElementById("check3").checked = false;
-      document.getElementById("check4").checked = false;
-      document.getElementById("check5").checked = false;
-      document.getElementById("check6").checked = false;
-      document.getElementById("check7").checked = false;
-
-      // Call the function to update the list initially (no categories selected)
-      updateSelectedList();
-    };
-
-    // Fetch States
-    try {
-      const stateResponse = await fetch("/stp/get_states/");
-      const states = await stateResponse.json();
-      populateDropdown(stateDropdown, states);
-    } catch (error) {
-      console.error("Error fetching states:", error);
-      alert("Failed to load states. Please refresh the page.");
-    }
-
-    // State Dropdown Change Event
-    stateDropdown.addEventListener("change", async function () {
-      const selectedOption = this.options[this.selectedIndex];
-      let state_id = selectedOption.dataset.state;
-      console.log("state_id", state_id);
-      selectedLocation.state = this.options[this.selectedIndex].text;
-      resetDropdown(districtDropdown);
-      resetDropdown(subDistrictDropdown);
-      clearBoundary();
-
-      if (!state_id) return;
-
-      try {
-        const districtResponse = await fetch("/stp/get_districts/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCSRFToken(),
-          },
-          body: JSON.stringify({ state: state_id }),
-        });
-        const districts = await districtResponse.json();
-        populateDropdown(districtDropdown, districts);
-      } catch (error) {
-        console.error("Error fetching districts:", error);
-        alert("Failed to load districts. Please try again.");
-      }
-    });
-
-    // District Dropdown Change Event
-    districtDropdown.addEventListener("change", async function () {
-      const selectedOption = this.options[this.selectedIndex];
-      const district_id = selectedOption.dataset.district;
-      const state_id = selectedOption.dataset.state;
-      console.log("district_id", district_id);
-      selectedLocation.district = this.options[this.selectedIndex].text;
-
-      resetDropdown(subDistrictDropdown);
-      clearBoundary();
-
-      if (!district_id) return;
-
-      try {
-        const subDistrictResponse = await fetch("/stp/get_sub_districts/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCSRFToken(),
-          },
-          body: JSON.stringify({ district: district_id, state: state_id }),
-        });
-        const subDistricts = await subDistrictResponse.json();
-        populateDropdown(subDistrictDropdown, subDistricts);
-      } catch (error) {
-        console.error("Error fetching sub-districts:", error);
-        alert("Failed to load sub-districts. Please try again.");
-      }
-    });
-
-    // Sub-District Dropdown Change Event
-    subDistrictDropdown.addEventListener("change", async function () {
-      const selectedOption = this.options[this.selectedIndex];
-      const sub_dis_id = selectedOption.dataset.subDistrict;
-      const district_id = selectedOption.dataset.district;
-      const state_id = selectedOption.dataset.state;
-      villageCheckboxesContainer.innerHTML = "";
-      console.log("sub_dis_id", sub_dis_id);
-      selectedLocation.subDistrict = this.options[this.selectedIndex].text;
-
-      clearBoundary();
-
-      if (!sub_dis_id) return;
-
-      try {
-        const villageResponse = await fetch("/stp/get_villages/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCSRFToken(),
-          },
-          body: JSON.stringify({
-            state: state_id,
-            district: district_id,
-            sub_district: sub_dis_id,
-          }),
-        });
-        const villages = await villageResponse.json();
-
-        // Create village checkboxes
-        const villageList = document.createElement("div");
-        console.log("village list is ", villageList);
-        villages.forEach((village) => {
-          const listItem = document.createElement("li");
-          listItem.classList.add("form-check");
-
-          const checkbox = document.createElement("input");
-          checkbox.type = "checkbox";
-          checkbox.classList.add("form-check-input");
-          checkbox.id = `village-${village.id}`;
-          checkbox.value = village.name;
-
-          const label = document.createElement("label");
-          label.classList.add("form-check-label");
-          label.htmlFor = `village-${village.id}`;
-          label.textContent = village.name;
-
-          // Add event listener for checkbox changes
-          checkbox.addEventListener("change", handleVillageSelection);
-
-          listItem.appendChild(checkbox);
-          listItem.appendChild(label);
-          villageCheckboxesContainer.appendChild(listItem);
-        });
-      } catch (error) {
-        console.error("Error fetching villages:", error);
-        alert("Failed to load villages. Please try again.");
-      }
-    });
-
-    // Show Boundaries Button Event
-    showOnMapButton.addEventListener("click", async function () {
-      // Clear previous boundary
-      clearBoundary();
-
-      // Fetch boundary data
-      try {
-        const boundaryResponse = await fetch("/stp/get_boundary/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCSRFToken(),
-          },
-          body: JSON.stringify({
-            state: selectedLocation.state,
-            district: selectedLocation.district,
-            sub_district: selectedLocation.subDistrict,
-            villages: selectedLocation.villages,
-          }),
-        });
-
-        const boundaryData = await boundaryResponse.json();
-
-        if (boundaryData.coordinates) {
-          // Create polygon boundary
-          currentBoundary = L.polygon(boundaryData.coordinates, {
-            color: "blue",
-            fillColor: "#30f",
-            fillOpacity: 0.2,
-          }).addTo(map);
-
-          // Fit map to boundary
-          map.fitBounds(currentBoundary.getBounds());
-
-          // Add popup with location details
-          currentBoundary
-            .bindPopup(
-              `
-                        State: ${selectedLocation.state || "Not Selected"}<br>
-                        District: ${
-                          selectedLocation.district || "Not Selected"
-                        }<br>
-                        Sub-District: ${
-                          selectedLocation.subDistrict || "Not Selected"
-                        }<br>
-                        Villages: ${
-                          selectedLocation.villages.join(", ") ||
-                          "None Selected"
-                        }
-                    `
-            )
-            .openPopup();
-        } else {
-          alert("No boundary data available for the selected location.");
-        }
-      } catch (error) {
-        console.error("Error fetching boundary:", error);
-        alert("Failed to fetch location boundary. Please try again.");
-      }
-    });
   });
-</script>
+}
+
+// Initialize form elements and attach event listeners
+function initializeFormElements() {
+  const stateDropdown = document.getElementById("state-dropdown");
+  const districtDropdown = document.getElementById("district-dropdown");
+  const subDistrictDropdown = document.getElementById("sub_district-dropdown");
+  const villageCheckboxesContainer = document.getElementById("villageCheckboxesContainer");
+  const showOnMapButton = document.getElementById("showOnMapButton");
+
+  // Attach category checkbox listeners
+  for (let i = 1; i <= 7; i++) {
+    document.getElementById(`check${i}`).addEventListener("change", updateSelectedList);
+  }
+
+  // Reset checkboxes
+  for (let i = 1; i <= 7; i++) {
+    document.getElementById(`check${i}`).checked = false;
+  }
+  updateSelectedList();
+
+  // Initialize dropdowns and location selection
+  initializeLocationDropdowns(stateDropdown, districtDropdown, subDistrictDropdown, villageCheckboxesContainer, showOnMapButton);
+}
+    </script>
 {% endblock %}

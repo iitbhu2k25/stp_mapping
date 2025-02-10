@@ -112,5 +112,12 @@ def GetBoundry(request):
         except Exception as e:
             print(str(e))
             return JsonResponse({'error': str(e)}, status=500)
+        
+    if request.method == 'POST':
+        request=json.loads(request.body)
+        print(request)
+        print("okays okays")
+        coordinates=[]
+        return JsonResponse({'coordinates': coordinates})
             
 
