@@ -5,12 +5,8 @@ services:
       dockerfile: Dockerfile
     container_name: django_app
     command: bash -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
-    environment:
-      - DEBUG=1
-      - POSTGRES_DB=mydatabase
-      - POSTGRES_USER=myuser
-      - POSTGRES_PASSWORD=mypassword
-      - DATABASE_URL=postgres://myuser:mypassword@db:5432/mydatabase
+    env_file:
+      - .env
     volumes:
       - .:/app
       - static_volume:/app/static
@@ -20,8 +16,7 @@ services:
     expose:
       - "8000"
     depends_on:
-      db:
-        condition: service_healthy
+      - db
     networks:
       - geo_network
     restart: unless-stopped
@@ -29,10 +24,8 @@ services:
   db:
     image: postgis/postgis:16-3.5
     container_name: postgis_db
-    environment:
-      POSTGRES_DB: mydatabase
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
+    env_file:
+      - .env
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
@@ -42,44 +35,7 @@ services:
     networks:
       - geo_network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d mydatabase"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: pgadmin4
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-      PGADMIN_LISTEN_PORT: 80
-    ports:
-      - "5050:80"
-    expose:
-      - "5050"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks:
-      - geo_network
-    restart: unless-stopped
-    depends_on:
-      - db
-
-  geoserver:
-    image: docker.osgeo.org/geoserver:2.26.2
-    container_name: geoserver
-    ports:
-      - "8080:8080"
-    volumes:
-      - geoserver_data:/opt/geoserver/data_dir
-    environment:
-      - GEOSERVER_DATA_DIR=/opt/geoserver/data_dir
-      - GEOSERVER_HOME=/opt/geoserver
-    networks:
-      - geo_network
-    restart: unless-stopped
 
 networks:
   geo_network:
@@ -88,6 +44,5 @@ networks:
 volumes:
   pg_data:
   pgadmin_data:
-  geoserver_data:
   static_volume:
   media_volume:
