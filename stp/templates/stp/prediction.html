@@ -389,6 +389,15 @@
     cursor: pointer;
     transition: background-color 0.2s ease;
   }
+  .ol-popup {
+  background-color: white;
+  padding: 15px;
+  border-radius: 10px;
+  border: 1px solid #cccccc;
+  bottom: 12px;
+  left: -50px;
+  min-width: 280px;
+}
 
   /* .table td.editable:hover {
         background-color: #f8f9fa;
@@ -451,42 +460,175 @@
   let selectedCategories = [];
   let currentBoundary = null;
   let table_value = [];
-  let map = null;
-  // Initialize Map
-  async function loadDefaultBoundary() {
-    try {
-      const response = await fetch("/stp/get_default_boundary/");
-      const data = await response.json();
-      if (data.coordinates && map) {
-        if (currentBoundary) {
-          map.removeLayer(currentBoundary);
-        }
-        currentBoundary = L.polygon(data.coordinates, {
-          color: "#76ba1b",
-          fillColor: "#76ba1b",
-          fillOpacity: 0.2,
-          weight: 2,
-        }).addTo(map);
-        console.log('currentBoundary is ', currentBoundary);
-        map.fitBounds(currentBoundary.getBounds());
-      }
-    } catch (error) {
-      console.error("Error loading default boundary:", error);
-    }
-  }
-  document.addEventListener("DOMContentLoaded", function () {
-    // Initialize map if container exists
-    const mapContainer = document.getElementById("map");
-    if (mapContainer && !map) {
-      map = L.map("map").setView([20.5937, 78.9629], 5);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 18,
-      }).addTo(map);
+  let map;
+let view;
+let vectorLayer;
 
-      // Load default boundary
-      loadDefaultBoundary();
-    }
+function initMap() {
+  view = new ol.View({
+    center: ol.proj.fromLonLat([78.9629, 20.5937]),
+    zoom: 5
   });
+
+  vectorLayer = new ol.layer.Vector({
+    source: new ol.source.Vector()
+  });
+
+  map = new ol.Map({
+    target: 'map',
+    layers: [
+      new ol.layer.Tile({
+        source: new ol.source.OSM()
+      }),
+      vectorLayer
+    ],
+    view: view
+  });
+}
+
+async function loadDefaultBoundary() {
+  try {
+    const response = await fetch("/stp/get_default_boundary/");
+    const data = await response.json();
+    
+    if (data.coordinates && map) {
+      clearBoundary();
+      
+      const coords = data.coordinates.map(ring => {
+        return ring.map(coord => {
+          return ol.proj.fromLonLat([coord[0], coord[1]]);
+        });
+      });
+
+      const feature = new ol.Feature({
+        geometry: new ol.geom.Polygon(coords)
+      });
+
+      feature.setStyle(new ol.style.Style({
+        stroke: new ol.style.Stroke({
+          color: '#76ba1b',
+          width: 2
+        }),
+        fill: new ol.style.Fill({
+          color: 'rgba(118, 186, 27, 0.2)'
+        })
+      }));
+
+      vectorLayer.getSource().addFeature(feature);
+      currentBoundary = feature;
+
+      // Fit view to feature extent
+      view.fit(feature.getGeometry().getExtent(), {
+        padding: [50, 50, 50, 50]
+      });
+    }
+  } catch (error) {
+    console.error("Error loading default boundary:", error);
+  }
+}
+
+function clearBoundary() {
+  if (vectorLayer) {
+    vectorLayer.getSource().clear();
+  }
+}
+
+// Initialize map
+document.addEventListener('DOMContentLoaded', function() {
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://cdn.jsdelivr.net/npm/ol@v7.4.0/ol.css';
+  document.head.appendChild(link);
+
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/ol@v7.4.0/dist/ol.js';
+  script.onload = function() {
+    initMap();
+    loadDefaultBoundary();
+  };
+  document.head.appendChild(script);
+});
+
+// Update showBoundaries function
+async function showBoundaries() {
+  clearBoundary();
+
+  try {
+    const boundaryResponse = await fetch('/stp/get_boundary/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCSRFToken()
+      },
+      body: JSON.stringify({
+        state: selectedLocation.state,
+        district: selectedLocation.district,
+        sub_district: selectedLocation.subDistrict,
+        villages: selectedLocation.villages
+      })
+    });
+
+    const boundaryData = await boundaryResponse.json();
+
+    if (boundaryData.coordinates) {
+      const coords = boundaryData.coordinates.map(ring => {
+        return ring.map(coord => {
+          return ol.proj.fromLonLat([coord[0], coord[1]]);
+        });
+      });
+
+      const feature = new ol.Feature({
+        geometry: new ol.geom.Polygon(coords)
+      });
+
+      feature.setStyle(new ol.style.Style({
+        stroke: new ol.style.Stroke({
+          color: 'blue',
+          width: 2
+        }),
+        fill: new ol.style.Fill({
+          color: 'rgba(51, 0, 255, 0.2)'
+        })
+      }));
+
+      // Add popup overlay
+      const element = document.createElement('div');
+      element.className = 'ol-popup';
+      
+      const popup = new ol.Overlay({
+        element: element,
+        positioning: 'bottom-center',
+        stopEvent: false
+      });
+      
+      map.addOverlay(popup);
+
+      element.innerHTML = `
+        State: ${selectedLocation.state || 'Not Selected'}<br>
+        District: ${selectedLocation.district || 'Not Selected'}<br>
+        Sub-District: ${selectedLocation.subDistrict || 'Not Selected'}<br>
+        Villages: ${selectedLocation.villages.join(', ') || 'None Selected'}
+      `;
+
+      vectorLayer.getSource().addFeature(feature);
+      currentBoundary = feature;
+
+      // Fit view to feature extent
+      view.fit(feature.getGeometry().getExtent(), {
+        padding: [50, 50, 50, 50]
+      });
+      
+      // Position popup at center of feature
+      const extent = feature.getGeometry().getExtent();
+      popup.setPosition(ol.extent.getCenter(extent));
+    } else {
+      alert('No boundary data available for the selected location.');
+    }
+  } catch (error) {
+    console.error('Error fetching boundary:', error);
+    alert('Failed to fetch location boundary. Please try again.');
+  }
+}
   // Utility Functions
   function getCSRFToken() {
     return document.querySelector("[name=csrfmiddlewaretoken]")?.value || "";
@@ -765,20 +907,6 @@
       currentBoundary = null;
     }
   }
-
-  document.addEventListener("DOMContentLoaded", function () {
-    // Dynamically load Leaflet CSS
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.7.1/dist/leaflet.css";
-    document.head.appendChild(link);
-
-    // Dynamically load Leaflet JS
-    const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.7.1/dist/leaflet.js";
-    script.onload = initializeMap;
-    document.head.appendChild(script);
-  });
 
   function initializeMap() {
     const map = L.map("map").setView([20.5937, 78.9629], 5);
