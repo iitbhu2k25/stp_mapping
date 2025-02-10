@@ -8,6 +8,8 @@ from rest_framework.response import Response
 from django.shortcuts import render
 from .models import Data
 import json
+import geopandas as gpd
+from shapely.geometry import mapping
 from .service import weight_redisturb,normalize_data,rank_process 
 def stp_home(request):
     return render(request, 'stp/prediction.html')
@@ -87,72 +89,28 @@ def GetRankView(request):
         ans=rank_process(table_data,weight_key,headings)
         print('main ans',ans)
         return JsonResponse(ans,safe=False)
-        # find the rank 
-        
-        
 
-
-
-
-# def calculate_ranks(list_of_dicts, normalized_weights):
-#     # Initialize list to store scores
-#     scores = []
-    
-#     # For each dictionary in the list
-#     for data_dict in list_of_dicts:
-#         total_score = 0
-        
-#         # For each normalized weight dictionary
-#         for weight_dict in normalized_weights:
-#             # Get the key and weight value from weight dictionary
-#             weight_key = list(weight_dict.keys())[0]
-#             weight_value = list(weight_dict.values())[0]
+@csrf_exempt
+def GetBoundry(request):
+    if request.method == 'GET':
+        try:
+            gdf = gpd.read_file('media/shapefile/all_district/States_Sub_District.shp')
+            coordinates = []
             
-#             # Multiply data value with corresponding weight
-#             if weight_key in data_dict:
-#                 total_score += data_dict[weight_key] * weight_value
-        
-#         # Store the original data and its score
-#         scores.append({
-#             'data': data_dict['Districts'],
-#             'score': total_score
-#         })
-    
-#     # Sort scores in descending order
-#     sorted_scores = sorted(scores, key=lambda x: x['score'], reverse=True)
-    
-#     # Add ranks
-#     for i, score in enumerate(sorted_scores, 1):
-#         score['rank'] = i
-    
-#     return sorted_scores
-# # Create your views here.
+            for geometry in gdf.geometry:
+                if geometry.geom_type == 'Polygon':
+                    coords = [[[float(x), float(y)] for x, y in geometry.exterior.coords]]
+                    coordinates.extend(coords)
+                elif geometry.geom_type == 'MultiPolygon':
+                    multi_coords = []
+                    for polygon in geometry.geoms:  # Use .geoms for MultiPolygon
+                        coords = [[float(x), float(y)] for x, y in polygon.exterior.coords]
+                        multi_coords.append(coords)
+                    coordinates.extend(multi_coords)
+                    
+            return JsonResponse({'coordinates': coordinates})
+        except Exception as e:
+            print(str(e))
+            return JsonResponse({'error': str(e)}, status=500)
+            
 
-# class GetRankData(APIView):
-#     def post(self,request):
-#         ls=request.data
-#         ## this is getting heading
-#         headings=[] 
-#         headings.append(ls[0].keys())
-#         ## logic is
-#         headings=list(headings[0])
-#         replaced_map={'Districts':'Index_val'}
-#         updated_headings = [replaced_map.get(field, field) for field in headings]
-
-#         for i in ls:
-#             del i['id']
-
-#         weight=Weight.objects.values(*updated_headings)
-#         for i in weight:
-#             del i['id']
-#             del [i['Index_val']]
-#         updated_heading=updated_headings[2:]
-#         weights=list(weight)
-#         weights=weights[0]
-#         new_weight= weight_redisturb(weights,updated_heading)
-#         print("new weightis ",new_weight)
-#         ls,lst=normalize_columns(ls)
-#         print(ls)
-#         ans=calculate_ranks(ls,new_weight)
-#         print("ans is ",ans)
-#         return Response(ans,status=200)
