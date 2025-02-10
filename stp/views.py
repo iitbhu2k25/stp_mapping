@@ -112,12 +112,62 @@ def GetBoundry(request):
         except Exception as e:
             print(str(e))
             return JsonResponse({'error': str(e)}, status=500)
+    
         
     if request.method == 'POST':
-        request=json.loads(request.body)
-        print(request)
-        print("okays okays")
-        coordinates=[]
-        return JsonResponse({'coordinates': coordinates})
+
+        try:
+            # Read the shapefile
+            gdf = gpd.read_file('media/shapefile/all_district/States_Sub_District.shp')
+            coordinates = []
+            request_data = json.loads(request.body)
             
+            # Function to process geometry and extract coordinates
+            def process_geometry(geometry):
+                if geometry.geom_type == 'Polygon':
+                    coords = [[[float(x), float(y)] for x, y in geometry.exterior.coords]]
+                    coordinates.extend(coords)
+                elif geometry.geom_type == 'MultiPolygon':
+                    multi_coords = []
+                    for polygon in geometry.geoms:  # Use .geoms for MultiPolygon
+                        coords = [[float(x), float(y)] for x, y in polygon.exterior.coords]
+                        multi_coords.append(coords)
+                    coordinates.extend(multi_coords)
+
+            # Handle village level search
+            # if request_data.get('villages'):
+            #     village_list = request_data['villages']
+            #     filtered_gdf = gdf[gdf['village'].isin(village_list)]
+            #     for geometry in filtered_gdf.geometry:
+            #         process_geometry(geometry)
+            
+            # Handle sub-district level search
+            if request_data.get('sub_district'):
+                sub_district = request_data['sub_district']
+                filtered_gdf = gdf[gdf['sdtname'] == sub_district]
+                for geometry in filtered_gdf.geometry:
+                    process_geometry(geometry)
+            
+            # Handle district level search
+            elif request_data.get('district'):
+                district = request_data['district']
+                filtered_gdf = gdf[gdf['dtname'] == district]
+                for geometry in filtered_gdf.geometry:
+                    process_geometry(geometry)
+            
+            # Handle state level search
+            elif request_data.get('state'):
+                state = request_data['state']
+                filtered_gdf = gdf[gdf['stname'] == state]
+                for geometry in filtered_gdf.geometry:
+                    process_geometry(geometry)
+            
+            print("Processed request:", request_data)
+            print("Number of coordinates found:", len(coordinates))
+            
+            return JsonResponse({'coordinates': coordinates})
+        
+        except Exception as e:
+            print("Error processing geographic data:", str(e))
+            return JsonResponse({'error': str(e)}, status=500)
 
