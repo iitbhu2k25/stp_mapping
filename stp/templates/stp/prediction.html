@@ -579,7 +579,7 @@ async function handleVillageSelection(event) {
           "X-CSRFToken": getCSRFToken(),
         },
         body: JSON.stringify({
-          village_id: villageId.replace('village-', ''),
+          village_name: selectedLocation.villages,
           state: selectedLocation.state,
           district: selectedLocation.district,
           sub_district: selectedLocation.subDistrict
