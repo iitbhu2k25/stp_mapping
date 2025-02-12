@@ -117,7 +117,6 @@ def GetVillage_UP(request):
         if not coordinates:
             return JsonResponse({'error': 'Failed to extract valid coordinates'}, status=500)
 
-        # Ensure proper nesting for MultiPolygon
         if len(coordinates) > 1:
             coordinates = [coordinates]
 

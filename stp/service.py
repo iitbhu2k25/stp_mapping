@@ -118,9 +118,8 @@ def process_geometries(filtered_gdf):
                 # Continue with undissolved geometries
                 pass
 
-        # Process each geometry row
-        for _, row in filtered_gdf.iterrows():
-            geometry = row.geometry
+        # Process the geometries
+        for geometry in filtered_gdf.geometry:
             if geometry is None:
                 continue
                 
@@ -128,17 +127,41 @@ def process_geometries(filtered_gdf):
             if fixed_geometry is None:
                 continue
 
-            if isinstance(fixed_geometry, Polygon):
-                coords = [[float(y), float(x)] for x, y in fixed_geometry.exterior.coords]
-                coordinates.append(coords)
-            
-            elif isinstance(fixed_geometry, MultiPolygon):
-                for polygon in fixed_geometry.geoms:
-                    poly_coords = [[float(y), float(x)] for x, y in polygon.exterior.coords]
-                    coordinates.append(poly_coords)
+            try:
+                if isinstance(fixed_geometry, Polygon):
+                    print("Processing Polygon")
+                    # Get coordinates from the exterior ring
+                    coords = fixed_geometry.exterior.coords
+                    # Convert coordinates to list of [lat, lon] pairs
+                    coord_list = []
+                    for coord in coords:
+                        # coord[0] is x (longitude), coord[1] is y (latitude)
+                        coord_list.append([float(coord[1]), float(coord[0])])
+                    coordinates.append(coord_list)
+                
+                elif isinstance(fixed_geometry, MultiPolygon):
+                    print("Processing MultiPolygon")
+                    for polygon in fixed_geometry.geoms:
+                        # Get coordinates from each polygon's exterior ring
+                        coords = polygon.exterior.coords
+                        # Convert coordinates to list of [lat, lon] pairs
+                        coord_list = []
+                        for coord in coords:
+                            # coord[0] is x (longitude), coord[1] is y (latitude)
+                            coord_list.append([float(coord[1]), float(coord[0])])
+                        print("Appending polygon coordinates")
+                        coordinates.append(coord_list)
+                else:
+                    print(f"Unexpected geometry type: {type(fixed_geometry)}")
+
+            except Exception as e:
+                print(f"Error processing single geometry: {str(e)}")
+                print(f"Geometry type: {type(fixed_geometry)}")
+                continue
 
     except Exception as e:
         print(f"Error processing geometries: {str(e)}")
         return []
 
+    print(f"Total coordinates processed: {len(coordinates)}")
     return coordinates
