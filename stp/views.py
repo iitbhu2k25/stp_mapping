@@ -115,6 +115,8 @@ def GetBoundry(request):
         except Exception as e:
             print(str(e))
             return JsonResponse({'error': str(e)}, status=500)
+    
+        
     if request.method == 'POST':
         try:
             # Read the shapefile
@@ -178,36 +180,15 @@ def GetBoundry(request):
                 if request_data.get('villages'):
                     village_list = request_data['villages']
                     filtered_gdf = gdf[gdf['village'].isin(village_list)]
-                
                 elif request_data.get('sub_district'):
-                    # Get required parameters
                     sub_district = request_data['sub_district']
-                    district = request_data.get('district')
-                    state = request_data.get('state')
-                    
-                    # Build filter conditions
-                    conditions = (gdf['sdtname'] == sub_district)
-                    if district:
-                        conditions &= (gdf['dtname'] == district)
-                    if state:
-                        conditions &= (gdf['stname'] == state)
-                    filtered_gdf = gdf[conditions]
-                
+                    filtered_gdf = gdf[gdf['sdtname'] == sub_district]
                 elif request_data.get('district'):
-                    # Get required parameters
                     district = request_data['district']
-                    state = request_data.get('state')
-                    
-                    # Build filter conditions
-                    conditions = (gdf['dtname'] == district)
-                    if state:
-                        conditions &= (gdf['stname'] == state)
-                    filtered_gdf = gdf[conditions]
-                
+                    filtered_gdf = gdf[gdf['dtname'] == district]
                 elif request_data.get('state'):
                     state = request_data['state']
                     filtered_gdf = gdf[gdf['stname'] == state]
-                
                 else:
                     return JsonResponse({'error': 'No valid geographic criteria provided'}, status=400)
                     
@@ -248,3 +229,29 @@ def GetBoundry(request):
         except Exception as e:
             print(f"Error reading shapefile or processing request: {str(e)}")
             return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+def get_all_boundaries(request):
+    try:
+        # Read your subdistrict shapefile
+        gdf = gpd.read_file("media/shapefile/all_district/States_Sub_District.shp")
+        features = []
+        for idx, row in gdf.iterrows():
+            feature = {
+                "type": "Feature",
+                "properties": {
+                    "state": row["stname"],  # adjust column names based on your shapefile
+                    "district": row["dtname"],
+                    "subdistrict": row["sdtname"],
+                    "id": str(idx)  # for identifying selections
+                },
+                "geometry": mapping(row["geometry"])
+            }
+            features.append(feature)
+        geojson = {
+            "type": "FeatureCollection",
+            "features": features
+        }
+        return JsonResponse(geojson)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)

@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "seawage",
     "waterdemands",
     "stp",
+    "mapping",
     "leaflet",
 ]
 

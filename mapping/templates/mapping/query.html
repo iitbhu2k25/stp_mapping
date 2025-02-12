@@ -1,0 +1,125 @@
+{% extends "mapping/base.html" %}
+{% load leaflet_tags %}
+
+{% block title %}Spatial Query{% endblock %}
+
+{% block extra_head %}
+    {% leaflet_js %}
+    {% leaflet_css %}
+    <style>
+        #query-map {
+            width: 100%;
+            height: 400px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            margin-top: 20px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="mb-0">Spatial Query</h2>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="vector_id" class="form-label">Select Base Vector:</label>
+                        <select name="vector_id" id="vector_id" class="form-select">
+                            {% for vector in vectors %}
+                                <option value="{{ vector.id }}">{{ vector.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="query_type" class="form-label">Query Type:</label>
+                        <select name="query_type" id="query_type" class="form-select">
+                            <option value="intersects">Intersects</option>
+                            <option value="contains">Contains</option>
+                            <option value="within">Within</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Run Query</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">Results</h3>
+            </div>
+            <div class="card-body">
+                {% if results %}
+                    <div class="list-group mb-3">
+                        {% for result in results %}
+                            <div class="list-group-item">
+                                <h5 class="mb-1">{{ result.name }}</h5>
+                                <p class="mb-1">{{ result.description }}</p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    {% if request.method == "POST" %}
+                        <p class="text-muted">No results found for this query.</p>
+                    {% endif %}
+                {% endif %}
+                
+                <div id="query-map">
+                    {% leaflet_map "query" callback="window.query_map_init" %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.query_map_init = function(map, options) {
+        {% if vectors %}
+            var baseVector = null;
+            {% if request.POST.vector_id %}
+                {% for vector in vectors %}
+                    {% if vector.id|stringformat:"s" == request.POST.vector_id %}
+                        baseVector = {{ vector.geometry.geojson|safe }};
+                        L.geoJSON(baseVector, {
+                            style: {
+                                color: '#ff7800',
+                                weight: 2,
+                                opacity: 0.8
+                            }
+                        }).addTo(map);
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+
+            {% if results %}
+                {% for result in results %}
+                    var resultGeojson = {{ result.geometry.geojson|safe }};
+                    L.geoJSON(resultGeojson, {
+                        style: {
+                            color: '#0078ff',
+                            weight: 2,
+                            opacity: 0.6
+                        },
+                        onEachFeature: function(feature, layer) {
+                            layer.bindPopup("{{ result.name }}");
+                        }
+                    }).addTo(map);
+                {% endfor %}
+            {% endif %}
+
+            if (baseVector) {
+                var bounds = L.geoJSON(baseVector).getBounds();
+                map.fitBounds(bounds);
+            }
+        {% endif %}
+    };
+</script>
+{% endblock %}

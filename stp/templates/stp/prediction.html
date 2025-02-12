@@ -449,7 +449,7 @@
 </style>
 {% endblock %} {% block extra_js %}
 <script>
-    // Global variables
+  // Global variables
 let myBarChart;
 let tableData = [];
 let selectedLocation = {
@@ -461,17 +461,298 @@ let selectedLocation = {
 let selectedCategories = [];
 let currentBoundary = null;
 let map;
+let selectedLayer = null;
+let isUpdatingFromMap = false;
 
-// Map initialization
+// Map styles
+const mapStyle = {
+  default: {
+    color: '#76ba1b',
+    weight: 2,
+    opacity: 0.8,
+    fillColor: '#76ba1b',
+    fillOpacity: 0.2
+  },
+  hover: {
+    color: '#666',
+    weight: 3,
+    opacity: 1,
+    fillOpacity: 0.3
+  },
+  selected: {
+    color: '#ff7800',
+    weight: 3,
+    fillColor: '#ff7800',
+    fillOpacity: 0.3
+  }
+};
+
+// Initialize map
+// Update the map initialization
 function initMap() {
-  map = L.map("map").setView([20.5937, 78.9629], 5);
+  // Create map with touch handling options
+  map = L.map("map", {
+    // Enable touch handling options
+    tap: true,
+    tapTolerance: 15,
+    touchZoom: true,
+    bounceAtZoomLimits: true,
+    // Add pointer event handling
+    renderer: L.canvas({ tolerance: 5 })
+  }).setView([20.5937, 78.9629], 5);
   
+  // Add tile layer with options
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap contributors",
+    maxZoom: 19,
+    // Add pointer event handling to tiles
+    interactive: true,
+    bubblingMouseEvents: false
   }).addTo(map);
+
+  // Initialize map interaction
+  initializeMapInteraction();
 }
 
-// Clear existing boundary
+// Update feature interaction handling
+function initializeMapInteraction() {
+  // Update event handling to use pointer events
+  map.on('click', function(e) {
+    if (e.originalEvent) {
+      e.originalEvent.preventDefault();
+    }
+    if (!e.layer) {
+      if (selectedLayer) {
+        selectedLayer.setStyle(mapStyle.default);
+        selectedLayer = null;
+      }
+      resetDropdowns();
+    }
+  });
+
+  loadBoundariesWithInteraction();
+}
+
+// Update loadBoundariesWithInteraction to handle pointer events
+async function loadBoundariesWithInteraction() {
+  try {
+    const response = await fetch("/stp/get_all_boundaries/");
+    const data = await response.json();
+
+    if (data.features) {
+      L.geoJSON(data, {
+        style: mapStyle.default,
+        interactive: true,
+        onEachFeature: function(feature, layer) {
+          layer.properties = feature.properties;
+          
+          // Use pointer events instead of mouse events
+          layer.on({
+            pointerover: highlightFeature,
+            pointerout: resetHighlight,
+            pointerdown: selectFeature
+          });
+        }
+      }).addTo(map);
+    }
+  } catch (error) {
+    console.error("Error loading boundaries:", error);
+  }
+}
+// Reset functions
+function resetDropdowns() {
+  const dropdowns = ['state-dropdown', 'district-dropdown', 'sub_district-dropdown'];
+  dropdowns.forEach(id => {
+    const dropdown = document.getElementById(id);
+    if (dropdown) {
+      resetDropdown(dropdown);
+    }
+  });
+  
+  // Reset selected location state
+  selectedLocation = {
+    state: null,
+    district: null,
+    subDistrict: null,
+    villages: []
+  };
+
+  // Clear village checkboxes
+  const villageContainer = document.getElementById('villageCheckboxesContainer');
+  if (villageContainer) {
+    villageContainer.innerHTML = '';
+  }
+}
+
+// Individual dropdown reset
+function resetDropdown(dropdown) {
+  if (dropdown) {
+    dropdown.innerHTML = '<option value="">--Choose an option--</option>';
+    dropdown.disabled = true;
+  }
+}
+
+// Reset all state including map and selection
+function resetAllState() {
+  // Reset dropdowns and location
+  resetDropdowns();
+  
+  // Reset map state
+  if (selectedLayer) {
+    selectedLayer.setStyle(mapStyle.default);
+    selectedLayer = null;
+  }
+  clearBoundary();
+  
+  // Reset categories
+  selectedCategories = [];
+  for (let i = 1; i <= 7; i++) {
+    const checkbox = document.getElementById(`check${i}`);
+    if (checkbox) {
+      checkbox.checked = false;
+    }
+  }
+  
+  // Reset table
+  const headerRow = document.getElementById('headerRow');
+  const tableBody = document.getElementById('tableBody');
+  if (headerRow) headerRow.innerHTML = '';
+  if (tableBody) tableBody.innerHTML = '';
+  
+  // Reset chart
+  const chartCanvas = document.getElementById('myBarChart');
+  if (chartCanvas) {
+    chartCanvas.style.display = 'none';
+    if (myBarChart) {
+      myBarChart.destroy();
+      myBarChart = null;
+    }
+  }
+}
+// Feature interaction handlers
+function highlightFeature(e) {
+  const layer = e.target;
+  
+  if (layer !== selectedLayer) {
+    layer.setStyle(mapStyle.hover);
+    layer.bindPopup(createPopupContent(layer.properties)).openPopup();
+  }
+}
+
+function resetHighlight(e) {
+  const layer = e.target;
+  if (layer !== selectedLayer) {
+    layer.setStyle(mapStyle.default);
+    layer.closePopup();
+  }
+}
+
+function selectFeature(e) {
+  const layer = e.target;
+  const props = layer.properties;
+
+  if (selectedLayer) {
+    selectedLayer.setStyle(mapStyle.default);
+  }
+
+  layer.setStyle(mapStyle.selected);
+  selectedLayer = layer;
+  
+  isUpdatingFromMap = true;
+  updateDropdownsFromMapSelection(props);
+  map.fitBounds(layer.getBounds());
+}
+
+function createPopupContent(props) {
+  return `
+    <div class="map-popup">
+      <strong>State:</strong> ${props.state || 'N/A'}<br>
+      <strong>District:</strong> ${props.district || 'N/A'}<br>
+      <strong>Sub-District:</strong> ${props.subdistrict || 'N/A'}<br>
+      Click to select this region
+    </div>
+  `;
+}
+
+// Update dropdowns from map selection
+async function updateDropdownsFromMapSelection(props) {
+  try {
+    const stateDropdown = document.getElementById('state-dropdown');
+    const districtDropdown = document.getElementById('district-dropdown');
+    const subDistrictDropdown = document.getElementById('sub_district-dropdown');
+
+    // Update state
+    if (props.state) {
+      const stateOption = Array.from(stateDropdown.options)
+        .find(option => option.text === props.state);
+      
+      if (stateOption) {
+        stateDropdown.value = stateOption.value;
+        selectedLocation.state = props.state;
+        
+        // Fetch and populate districts
+        const districtResponse = await fetch("/stp/get_districts/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCSRFToken(),
+          },
+          body: JSON.stringify({ state: stateOption.dataset.state }),
+        });
+        
+        const districts = await districtResponse.json();
+        populateDropdown(districtDropdown, districts);
+
+        // Update district
+        if (props.district) {
+          const districtOption = Array.from(districtDropdown.options)
+            .find(option => option.text === props.district);
+          
+          if (districtOption) {
+            districtDropdown.value = districtOption.value;
+            selectedLocation.district = props.district;
+
+            // Fetch and populate sub-districts
+            const subDistrictResponse = await fetch("/stp/get_sub_districts/", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCSRFToken(),
+              },
+              body: JSON.stringify({
+                district: districtOption.dataset.district,
+                state: stateOption.dataset.state
+              }),
+            });
+
+            const subDistricts = await subDistrictResponse.json();
+            populateDropdown(subDistrictDropdown, subDistricts);
+
+            // Update sub-district
+            if (props.subdistrict) {
+              const subDistrictOption = Array.from(subDistrictDropdown.options)
+                .find(option => option.text === props.subdistrict);
+              
+              if (subDistrictOption) {
+                subDistrictDropdown.value = subDistrictOption.value;
+                selectedLocation.subDistrict = props.subdistrict;
+                
+                const event = new Event('change');
+                subDistrictDropdown.dispatchEvent(event);
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error updating dropdowns:", error);
+  } finally {
+    isUpdatingFromMap = false;
+  }
+}
+
+// Clear boundary
 function clearBoundary() {
   if (currentBoundary) {
     map.removeLayer(currentBoundary);
@@ -499,25 +780,17 @@ async function loadDefaultBoundary() {
       };
 
       currentBoundary = L.geoJSON(geojson, {
-        style: {
-          color: "#76ba1b",
-          weight: 2,
-          opacity: 1,
-          fillColor: "#76ba1b",
-          fillOpacity: 0.2,
-        },
+        style: mapStyle.default
       }).addTo(map);
 
-      map.fitBounds(currentBoundary.getBounds(), {
-        padding: [50, 50],
-      });
+      map.fitBounds(currentBoundary.getBounds());
     }
   } catch (error) {
     console.error("Error loading default boundary:", error);
   }
 }
 
-// Initialize map on page load
+// Document initialization
 document.addEventListener("DOMContentLoaded", function () {
   // Add Leaflet CSS
   const link = document.createElement("link");
@@ -534,7 +807,7 @@ document.addEventListener("DOMContentLoaded", function () {
   };
   document.head.appendChild(script);
   
-  // Initialize form elements and event listeners
+  // Initialize form elements
   initializeFormElements();
 });
 
@@ -562,18 +835,6 @@ function populateDropdown(dropdown, items) {
   dropdown.disabled = false;
 }
 
-// Village Selection Handler
-function handleVillageSelection(event) {
-  const villageName = event.target.id;
-  if (event.target.checked) {
-    selectedLocation.villages.push(villageName);
-  } else {
-    selectedLocation.villages = selectedLocation.villages.filter(
-      (v) => v !== villageName
-    );
-  }
-}
-
 // Category Selection Handler
 function updateSelectedList() {
   selectedCategories = [];
@@ -598,7 +859,19 @@ function getCategoryName(index) {
   return categories[index];
 }
 
-// Form submission and table handling
+// Village Selection Handler
+function handleVillageSelection(event) {
+  const villageName = event.target.id;
+  if (event.target.checked) {
+    selectedLocation.villages.push(villageName);
+  } else {
+    selectedLocation.villages = selectedLocation.villages.filter(
+      (v) => v !== villageName
+    );
+  }
+}
+
+// Form submission
 async function submitForm(event) {
   event.preventDefault();
   try {
@@ -606,20 +879,21 @@ async function submitForm(event) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-CSRFToken": getCSRFToken(),
       },
       body: JSON.stringify({
         main_data: selectedLocation,
         categories: selectedCategories,
       }),
     });
-    const tableData = await response.json();
-    updateTable(tableData);
+    const data = await response.json();
+    updateTable(data);
   } catch (error) {
     console.error("Error fetching table data:", error);
   }
 }
 
-// Table Update Logic
+// Table handling
 function updateTable(data) {
   tableData = [...data];
   const headerRow = document.getElementById("headerRow");
@@ -637,7 +911,7 @@ function updateTable(data) {
     headerRow.appendChild(th);
   });
   
-  // Add data rows with editable cells
+  // Add data rows
   data.forEach((row, rowIndex) => {
     const tr = document.createElement("tr");
     Object.entries(row).forEach(([key, value]) => {
@@ -712,7 +986,7 @@ function validateAndProcessValue(value, field) {
   return value;
 }
 
-// Rankings chart handling
+// Rankings handling
 async function ranking(event) {
   event.preventDefault();
   try {
@@ -829,6 +1103,7 @@ async function initializeLocationDropdowns(stateDropdown, districtDropdown, subD
 
   // State Dropdown Change Event
   stateDropdown.addEventListener("change", async function() {
+    if (isUpdatingFromMap) return;
     const selectedOption = this.options[this.selectedIndex];
     const state_id = selectedOption.dataset.state;
     selectedLocation.state = this.options[this.selectedIndex].text;
@@ -853,6 +1128,7 @@ async function initializeLocationDropdowns(stateDropdown, districtDropdown, subD
       
       // Update boundary after state selection
       await updateBoundaryOnMap();
+      updateMapSelectionFromDropdowns();
     } catch (error) {
       console.error("Error fetching districts:", error);
       alert("Failed to load districts. Please try again.");
@@ -861,6 +1137,7 @@ async function initializeLocationDropdowns(stateDropdown, districtDropdown, subD
 
   // District Dropdown Change Event
   districtDropdown.addEventListener("change", async function() {
+    if (isUpdatingFromMap) return;
     const selectedOption = this.options[this.selectedIndex];
     const district_id = selectedOption.dataset.district;
     const state_id = selectedOption.dataset.state;
@@ -885,6 +1162,7 @@ async function initializeLocationDropdowns(stateDropdown, districtDropdown, subD
       
       // Update boundary after district selection
       await updateBoundaryOnMap();
+      updateMapSelectionFromDropdowns();
     } catch (error) {
       console.error("Error fetching sub-districts:", error);
       alert("Failed to load sub-districts. Please try again.");
@@ -893,6 +1171,7 @@ async function initializeLocationDropdowns(stateDropdown, districtDropdown, subD
 
   // Sub-District Dropdown Change Event
   subDistrictDropdown.addEventListener("change", async function() {
+    if (isUpdatingFromMap) return;
     const selectedOption = this.options[this.selectedIndex];
     const sub_dis_id = selectedOption.dataset.subDistrict;
     const district_id = selectedOption.dataset.district;
@@ -948,6 +1227,7 @@ async function initializeLocationDropdowns(stateDropdown, districtDropdown, subD
       
       // Update boundary after sub-district selection
       await updateBoundaryOnMap();
+      updateMapSelectionFromDropdowns();
     } catch (error) {
       console.error("Error fetching villages:", error);
       alert("Failed to load villages. Please try again.");
@@ -1024,5 +1304,218 @@ function initializeFormElements() {
   // Initialize dropdowns and location selection
   initializeLocationDropdowns(stateDropdown, districtDropdown, subDistrictDropdown, villageCheckboxesContainer, showOnMapButton);
 }
-    </script>
+async function updateMapSelectionFromDropdowns() {
+  try {
+    const response = await fetch("/stp/get_boundary/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCSRFToken(),
+      },
+      body: JSON.stringify({
+        state: selectedLocation.state,
+        district: selectedLocation.district,
+        sub_district: selectedLocation.subDistrict,
+        villages: selectedLocation.villages,
+      }),
+    });
+
+    const boundaryData = await response.json();
+    
+    clearBoundary();
+
+    if (boundaryData.coordinates) {
+      currentBoundary = L.polygon(boundaryData.coordinates, {
+        color: '#ff7800',
+        weight: 3,
+        fillColor: '#ff7800',
+        fillOpacity: 0.3
+      }).addTo(map);
+
+      map.fitBounds(currentBoundary.getBounds());
+      
+      currentBoundary.bindPopup(`
+        State: ${selectedLocation.state || "Not Selected"}<br>
+        District: ${selectedLocation.district || "Not Selected"}<br>
+        Sub-District: ${selectedLocation.subDistrict || "Not Selected"}<br>
+        Villages: ${selectedLocation.villages.join(", ") || "None Selected"}
+      `).openPopup();
+    }
+  } catch (error) {
+    console.error("Error updating map selection:", error);
+  }
+}
+
+// Update dropdowns based on map selection
+async function updateDropdownsFromMapSelection(props) {
+  if (!props) return;
+  
+  try {
+    const stateDropdown = document.getElementById('state-dropdown');
+    const districtDropdown = document.getElementById('district-dropdown');
+    const subDistrictDropdown = document.getElementById('sub_district-dropdown');
+
+    isUpdatingFromMap = true;
+
+    // Update state
+    if (props.state) {
+      const stateOption = Array.from(stateDropdown.options)
+        .find(option => option.text === props.state);
+      
+      if (stateOption) {
+        stateDropdown.value = stateOption.value;
+        selectedLocation.state = props.state;
+        
+        // Fetch districts
+        const districtResponse = await fetch("/stp/get_districts/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCSRFToken(),
+          },
+          body: JSON.stringify({ state: stateOption.dataset.state }),
+        });
+        
+        const districts = await districtResponse.json();
+        populateDropdown(districtDropdown, districts);
+
+        // Update district if available
+        if (props.district) {
+          const districtOption = Array.from(districtDropdown.options)
+            .find(option => option.text === props.district);
+          
+          if (districtOption) {
+            districtDropdown.value = districtOption.value;
+            selectedLocation.district = props.district;
+
+            // Fetch sub-districts
+            const subDistrictResponse = await fetch("/stp/get_sub_districts/", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCSRFToken(),
+              },
+              body: JSON.stringify({
+                district: districtOption.dataset.district,
+                state: stateOption.dataset.state
+              }),
+            });
+
+            const subDistricts = await subDistrictResponse.json();
+            populateDropdown(subDistrictDropdown, subDistricts);
+
+            // Update sub-district if available
+            if (props.subdistrict) {
+              const subDistrictOption = Array.from(subDistrictDropdown.options)
+                .find(option => option.text === props.subdistrict);
+              
+              if (subDistrictOption) {
+                subDistrictDropdown.value = subDistrictOption.value;
+                selectedLocation.subDistrict = props.subdistrict;
+                
+                // Update villages
+                const villageResponse = await fetch("/stp/get_villages/", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCSRFToken(),
+                  },
+                  body: JSON.stringify({
+                    state: stateOption.dataset.state,
+                    district: districtOption.dataset.district,
+                    sub_district: subDistrictOption.dataset.subDistrict
+                  }),
+                });
+
+                const villages = await villageResponse.json();
+                updateVillages(villages);
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error updating dropdowns:", error);
+  } finally {
+    isUpdatingFromMap = false;
+  }
+}
+
+function updateVillages(villages) {
+  const container = document.getElementById('villageCheckboxesContainer');
+  container.innerHTML = '';
+
+  villages.forEach((village) => {
+    const listItem = document.createElement("li");
+    listItem.classList.add("form-check");
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.classList.add("form-check-input");
+    checkbox.id = `village-${village.id}`;
+    checkbox.value = village.name;
+
+    // Check if this village is in selectedLocation.villages
+    if (selectedLocation.villages.includes(`village-${village.id}`)) {
+      checkbox.checked = true;
+    }
+
+    const label = document.createElement("label");
+    label.classList.add("form-check-label");
+    label.htmlFor = `village-${village.id}`;
+    label.textContent = village.name;
+
+    checkbox.addEventListener("change", handleVillageSelection);
+
+    listItem.appendChild(checkbox);
+    listItem.appendChild(label);
+    container.appendChild(listItem);
+  });
+}
+
+// Function to reset all states
+function resetState() {
+  selectedLocation = {
+    state: null,
+    district: null,
+    subDistrict: null,
+    villages: []
+  };
+  selectedCategories = [];
+  clearBoundary();
+  
+  // Reset dropdowns
+  const dropdowns = ['state-dropdown', 'district-dropdown', 'sub_district-dropdown'];
+  dropdowns.forEach(id => {
+    const dropdown = document.getElementById(id);
+    resetDropdown(dropdown);
+  });
+  
+  // Reset village checkboxes
+  document.getElementById('villageCheckboxesContainer').innerHTML = '';
+  
+  // Reset category checkboxes
+  for (let i = 1; i <= 7; i++) {
+    document.getElementById(`check${i}`).checked = false;
+  }
+  
+  // Clear table
+  document.getElementById('headerRow').innerHTML = '';
+  document.getElementById('tableBody').innerHTML = '';
+  
+  // Hide and clear chart
+  document.getElementById('myBarChart').style.display = 'none';
+  if (myBarChart) {
+    myBarChart.destroy();
+    myBarChart = null;
+  }
+}
+
+// Error handling function
+function handleError(error, context) {
+  console.error(`Error in ${context}:`, error);
+  alert(`An error occurred while ${context}. Please try again or contact support if the problem persists.`);
+}
+</script>
 {% endblock %}

@@ -17,7 +17,7 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path
-from .views import home,gwm,rwm,wrm,shsd,basic,about,contact
+from .views import home,gwm,rwm,wrm,shsd,basic
 
 urlpatterns = [
     path("", home, name="home"),
@@ -25,7 +25,5 @@ urlpatterns = [
     path("rwm",rwm,name='rwm'),
     path("wrm",wrm,name='wrm'),
     path("shsd",shsd,name='shsd'),
-    path("basic",basic,name='basic'),
-    path("about",about,name='about'),
-    path("contact",contact,name='contact')
+    path("basic",basic,name='basic')
 ]
