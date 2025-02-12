@@ -28,5 +28,4 @@ urlpatterns = [
     path("waterdemand/",include("waterdemands.urls")),
     path("sewage/",include("seawage.urls")),
     path("stp/",include("stp.urls")),
-    path("testing/",include("mapping.urls")),
 ]
