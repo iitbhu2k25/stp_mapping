@@ -572,13 +572,6 @@
 
       try {
         console.log("Fetching boundary for village:", villageName);
-        console.log("Request payload:", {
-          village_name: villageName,
-          state: selectedLocation.state,
-          district: selectedLocation.district,
-          sub_district: selectedLocation.subDistrict,
-        });
-
         const response = await fetch("/stp/get_village_boundary/", {
           method: "POST",
           headers: {
@@ -603,11 +596,52 @@
         console.log("Received boundary data:", boundaryData);
 
         if (boundaryData.coordinates) {
-          // Ensure coordinates are in the correct format
+          // Process and validate coordinates
           let coordinates = boundaryData.coordinates;
-          // Check if coordinates need to be wrapped in an extra array level
-          if (!Array.isArray(coordinates[0][0])) {
-            coordinates = [coordinates];
+
+          // Ensure coordinates are in the correct format [longitude, latitude]
+          function processCoordinates(coords) {
+            if (!Array.isArray(coords[0][0])) {
+              coords = [coords];
+            }
+
+            // Transform coordinates if they're in wrong order
+            return coords.map((polygon) =>
+              polygon.map((ring) =>
+                ring.map((coord) => {
+                  // Check if coordinates need to be swapped
+                  if (Math.abs(coord[0]) <= 37 && Math.abs(coord[1]) >= 68) {
+                    // If first number looks like latitude, swap them
+                    return [coord[1], coord[0]];
+                  }
+                  return coord;
+                })
+              )
+            );
+          }
+
+          coordinates = processCoordinates(coordinates);
+
+          // Validate coordinates are within India's bounds
+          const isValidCoordinate = (coord) => {
+            const [lon, lat] = coord;
+            return (
+              lat >= 6 &&
+              lat <= 37 && // Valid latitude range for India
+              lon >= 68 &&
+              lon <= 97
+            ); // Valid longitude range for India
+          };
+
+          // Check if coordinates are valid
+          const hasInvalidCoordinates = coordinates.some((polygon) =>
+            polygon.some((ring) =>
+              ring.some((coord) => !isValidCoordinate(coord))
+            )
+          );
+
+          if (hasInvalidCoordinates) {
+            throw new Error("Invalid coordinates: Outside India's boundaries");
           }
 
           console.log("Processed coordinates:", coordinates);
@@ -623,8 +657,6 @@
               name: villageName,
             },
           };
-
-          console.log("Created GeoJSON:", geojsonData);
 
           // Create a new boundary layer
           const villageBoundary = L.geoJSON(geojsonData, {
@@ -655,8 +687,13 @@
           // Fit map to the boundary
           const bounds = villageBoundary.getBounds();
           if (bounds.isValid()) {
-            console.log("Fitting to bounds:", bounds);
-            map.fitBounds(bounds, {
+            // Ensure bounds are within view limits
+            const validBounds = L.latLngBounds(
+              [Math.max(bounds.getSouth(), 6), Math.max(bounds.getWest(), 68)],
+              [Math.min(bounds.getNorth(), 37), Math.min(bounds.getEast(), 97)]
+            );
+
+            map.fitBounds(validBounds, {
               padding: [50, 50],
               maxZoom: 15,
             });
@@ -664,12 +701,11 @@
             console.warn("Invalid bounds for village boundary");
           }
         } else {
-          console.warn("No coordinates found in boundary data");
           throw new Error("No boundary data available for this village");
         }
       } catch (error) {
         console.error("Error handling village boundary:", error);
-        alert("Failed to load village boundary. Please try again.");
+        alert("Failed to load village boundary: " + error.message);
         selectedLocation.villages = selectedLocation.villages.filter(
           (v) => v !== villageName
         );
@@ -693,7 +729,20 @@
           villageBoundaries.forEach((boundary) => {
             allBounds.extend(boundary.getBounds());
           });
-          map.fitBounds(allBounds, {
+
+          // Ensure bounds are within view limits
+          const validBounds = L.latLngBounds(
+            [
+              Math.max(allBounds.getSouth(), 6),
+              Math.max(allBounds.getWest(), 68),
+            ],
+            [
+              Math.min(allBounds.getNorth(), 37),
+              Math.min(allBounds.getEast(), 97),
+            ]
+          );
+
+          map.fitBounds(validBounds, {
             padding: [50, 50],
             maxZoom: 15,
           });
