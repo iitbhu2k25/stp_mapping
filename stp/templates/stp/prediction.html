@@ -449,7 +449,7 @@
 </style>
 {% endblock %} {% block extra_js %}
 <script>
-      // Global variables
+  // Global variables
   let myBarChart;
   let tableData = [];
   let selectedLocation = {
@@ -461,6 +461,7 @@
   let selectedCategories = [];
   let currentBoundary = null;
   let map;
+  let villageBoundaries = new Map();
 
   // Map initialization
   function initMap() {
@@ -563,76 +564,78 @@
   }
 
   async function handleVillageSelection(event) {
-  const villageId = event.target.id;
-  const villageName = event.target.value;
-  
-  if (event.target.checked) {
-    selectedLocation.villages.push(villageName);
-    
-    try {
-      console.log("Fetching boundary for village:", villageName);
-      console.log("Request payload:", {
-        village_name: villageName,
-        state: selectedLocation.state,
-        district: selectedLocation.district,
-        sub_district: selectedLocation.subDistrict
-      });
+    const villageId = event.target.id;
+    const villageName = event.target.value;
 
-      const response = await fetch("/stp/get_village_boundary/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": getCSRFToken(),
-        },
-        body: JSON.stringify({
+    if (event.target.checked) {
+      selectedLocation.villages.push(villageName);
+
+      try {
+        console.log("Fetching boundary for village:", villageName);
+        console.log("Request payload:", {
           village_name: villageName,
           state: selectedLocation.state,
           district: selectedLocation.district,
-          sub_district: selectedLocation.subDistrict
-        }),
-      });
+          sub_district: selectedLocation.subDistrict,
+        });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch village boundary: ${response.statusText}`);
-      }
+        const response = await fetch("/stp/get_village_boundary/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCSRFToken(),
+          },
+          body: JSON.stringify({
+            village_name: villageName,
+            state: selectedLocation.state,
+            district: selectedLocation.district,
+            sub_district: selectedLocation.subDistrict,
+          }),
+        });
 
-      const boundaryData = await response.json();
-      console.log("Received boundary data:", boundaryData);
-
-      if (boundaryData.coordinates) {
-        // Ensure coordinates are in the correct format
-        let coordinates = boundaryData.coordinates;
-        // Check if coordinates need to be wrapped in an extra array level
-        if (!Array.isArray(coordinates[0][0])) {
-          coordinates = [coordinates];
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch village boundary: ${response.statusText}`
+          );
         }
-        
-        console.log("Processed coordinates:", coordinates);
 
-        // Create GeoJSON feature
-        const geojsonData = {
-          type: "Feature",
-          geometry: {
-            type: "MultiPolygon",
-            coordinates: coordinates
-          },
-          properties: {
-            name: villageName
+        const boundaryData = await response.json();
+        console.log("Received boundary data:", boundaryData);
+
+        if (boundaryData.coordinates) {
+          // Ensure coordinates are in the correct format
+          let coordinates = boundaryData.coordinates;
+          // Check if coordinates need to be wrapped in an extra array level
+          if (!Array.isArray(coordinates[0][0])) {
+            coordinates = [coordinates];
           }
-        };
-        
-        console.log("Created GeoJSON:", geojsonData);
 
-        // Create a new boundary layer
-        const villageBoundary = L.geoJSON(geojsonData, {
-          style: {
-            color: '#76ba1b',
-            fillColor: '#76ba1b',
-            fillOpacity: 0.2,
-            weight: 2
-          },
-          onEachFeature: (feature, layer) => {
-            layer.bindPopup(`
+          console.log("Processed coordinates:", coordinates);
+
+          // Create GeoJSON feature
+          const geojsonData = {
+            type: "Feature",
+            geometry: {
+              type: "MultiPolygon",
+              coordinates: coordinates,
+            },
+            properties: {
+              name: villageName,
+            },
+          };
+
+          console.log("Created GeoJSON:", geojsonData);
+
+          // Create a new boundary layer
+          const villageBoundary = L.geoJSON(geojsonData, {
+            style: {
+              color: "#76ba1b",
+              fillColor: "#76ba1b",
+              fillOpacity: 0.2,
+              weight: 2,
+            },
+            onEachFeature: (feature, layer) => {
+              layer.bindPopup(`
               <div class="ol-popup">
                 <h6>${feature.properties.name}</h6>
                 <p>State: ${selectedLocation.state}<br>
@@ -640,61 +643,64 @@
                 Sub-District: ${selectedLocation.subDistrict}</p>
               </div>
             `);
-          }
-        });
-
-        // Add the boundary to the map
-        villageBoundary.addTo(map);
-        
-        // Store the boundary layer reference
-        villageBoundaries.set(villageId, villageBoundary);
-        
-        // Fit map to the boundary
-        const bounds = villageBoundary.getBounds();
-        if (bounds.isValid()) {
-          console.log("Fitting to bounds:", bounds);
-          map.fitBounds(bounds, {
-            padding: [50, 50],
-            maxZoom: 15
+            },
           });
+
+          // Add the boundary to the map
+          villageBoundary.addTo(map);
+
+          // Store the boundary layer reference
+          villageBoundaries.set(villageId, villageBoundary);
+
+          // Fit map to the boundary
+          const bounds = villageBoundary.getBounds();
+          if (bounds.isValid()) {
+            console.log("Fitting to bounds:", bounds);
+            map.fitBounds(bounds, {
+              padding: [50, 50],
+              maxZoom: 15,
+            });
+          } else {
+            console.warn("Invalid bounds for village boundary");
+          }
         } else {
-          console.warn("Invalid bounds for village boundary");
+          console.warn("No coordinates found in boundary data");
+          throw new Error("No boundary data available for this village");
         }
-      } else {
-        console.warn("No coordinates found in boundary data");
-        throw new Error("No boundary data available for this village");
+      } catch (error) {
+        console.error("Error handling village boundary:", error);
+        alert("Failed to load village boundary. Please try again.");
+        selectedLocation.villages = selectedLocation.villages.filter(
+          (v) => v !== villageName
+        );
+        event.target.checked = false;
       }
-    } catch (error) {
-      console.error("Error handling village boundary:", error);
-      alert("Failed to load village boundary. Please try again.");
-      selectedLocation.villages = selectedLocation.villages.filter(v => v !== villageName);
-      event.target.checked = false;
-    }
-  } else {
-    // Remove village from selected villages array
-    selectedLocation.villages = selectedLocation.villages.filter(v => v !== villageName);
-    
-    // Remove the boundary from the map
-    const boundary = villageBoundaries.get(villageId);
-    if (boundary) {
-      map.removeLayer(boundary);
-      villageBoundaries.delete(villageId);
-      
-      // Update map view if there are other boundaries
-      if (villageBoundaries.size > 0) {
-        const allBounds = L.latLngBounds([]);
-        villageBoundaries.forEach(boundary => {
-          allBounds.extend(boundary.getBounds());
-        });
-        map.fitBounds(allBounds, {
-          padding: [50, 50],
-          maxZoom: 15
-        });
+    } else {
+      // Remove village from selected villages array
+      selectedLocation.villages = selectedLocation.villages.filter(
+        (v) => v !== villageName
+      );
+
+      // Remove the boundary from the map
+      const boundary = villageBoundaries.get(villageId);
+      if (boundary) {
+        map.removeLayer(boundary);
+        villageBoundaries.delete(villageId);
+
+        // Update map view if there are other boundaries
+        if (villageBoundaries.size > 0) {
+          const allBounds = L.latLngBounds([]);
+          villageBoundaries.forEach((boundary) => {
+            allBounds.extend(boundary.getBounds());
+          });
+          map.fitBounds(allBounds, {
+            padding: [50, 50],
+            maxZoom: 15,
+          });
+        }
       }
     }
   }
-}
-
   function updateSelectedList() {
     selectedCategories = [];
     for (let i = 1; i <= 7; i++) {
@@ -713,7 +719,7 @@
       4: "number_of_tourists",
       5: "number_of_asi_sites",
       6: "gdp_at_current_prices",
-      7: "water_quality_index"
+      7: "water_quality_index",
     };
     return categories[index];
   }
@@ -776,14 +782,14 @@
   }
 
   function formatCellValue(value, field) {
-    if (typeof value !== 'number') return value;
+    if (typeof value !== "number") return value;
     return field.includes("temperature") || field.includes("rainfall")
       ? value.toFixed(2)
       : value.toLocaleString();
   }
 
   function addEditableCell(cell) {
-    cell.addEventListener("dblclick", function(e) {
+    cell.addEventListener("dblclick", function (e) {
       if (this.querySelector("input")) return;
 
       const input = document.createElement("input");
@@ -824,7 +830,11 @@
       if (isNaN(value)) throw new Error("Please enter a valid number");
       return parseFloat(value);
     }
-    if (field.includes("tourists") || field.includes("sites") || field.includes("gap")) {
+    if (
+      field.includes("tourists") ||
+      field.includes("sites") ||
+      field.includes("gap")
+    ) {
       if (isNaN(value) || !Number.isInteger(Number(value)))
         throw new Error("Please enter a valid whole number");
       return parseInt(value);
@@ -864,14 +874,16 @@
     myBarChart = new Chart(ctx, {
       type: "bar",
       data: {
-        labels: data.map(item => item.name),
-        datasets: [{
-          label: "Rank",
-          data: data.map(item => item.rank),
-          backgroundColor: data.map(() => generateRandomColor(0.2)),
-          borderColor: data.map(() => generateRandomColor(1)),
-          borderWidth: 1,
-        }],
+        labels: data.map((item) => item.name),
+        datasets: [
+          {
+            label: "Rank",
+            data: data.map((item) => item.rank),
+            backgroundColor: data.map(() => generateRandomColor(0.2)),
+            borderColor: data.map(() => generateRandomColor(1)),
+            borderWidth: 1,
+          },
+        ],
       },
       options: {
         responsive: true,
@@ -894,7 +906,13 @@
   }
 
   // Location dropdowns initialization and handling
-  async function initializeLocationDropdowns(stateDropdown, districtDropdown, subDistrictDropdown, villageCheckboxesContainer, showOnMapButton) {
+  async function initializeLocationDropdowns(
+    stateDropdown,
+    districtDropdown,
+    subDistrictDropdown,
+    villageCheckboxesContainer,
+    showOnMapButton
+  ) {
     // Fetch initial states
     try {
       const stateResponse = await fetch("/stp/get_states/");
@@ -924,7 +942,7 @@
         });
 
         const boundaryData = await boundaryResponse.json();
-        console.log("ans state",boundaryData)
+        console.log("ans state", boundaryData);
         if (boundaryData.coordinates) {
           currentBoundary = L.polygon(boundaryData.coordinates, {
             color: "blue",
@@ -935,12 +953,18 @@
           map.fitBounds(currentBoundary.getBounds());
 
           currentBoundary
-            .bindPopup(`
+            .bindPopup(
+              `
               State: ${selectedLocation.state || "Not Selected"}<br>
               District: ${selectedLocation.district || "Not Selected"}<br>
-              Sub-District: ${selectedLocation.subDistrict || "Not Selected"}<br>
-              Villages: ${selectedLocation.villages.join(", ") || "None Selected"}
-            `)
+              Sub-District: ${
+                selectedLocation.subDistrict || "Not Selected"
+              }<br>
+              Villages: ${
+                selectedLocation.villages.join(", ") || "None Selected"
+              }
+            `
+            )
             .openPopup();
         }
       } catch (error) {
@@ -949,7 +973,7 @@
     }
 
     // State Dropdown Change Event
-    stateDropdown.addEventListener("change", async function() {
+    stateDropdown.addEventListener("change", async function () {
       const selectedOption = this.options[this.selectedIndex];
       const state_id = selectedOption.dataset.state;
       selectedLocation.state = this.options[this.selectedIndex].text;
@@ -981,7 +1005,7 @@
     });
 
     // District Dropdown Change Event
-    districtDropdown.addEventListener("change", async function() {
+    districtDropdown.addEventListener("change", async function () {
       const selectedOption = this.options[this.selectedIndex];
       const district_id = selectedOption.dataset.district;
       const state_id = selectedOption.dataset.state;
@@ -1013,7 +1037,7 @@
     });
 
     // Sub-District Dropdown Change Event
-    subDistrictDropdown.addEventListener("change", async function() {
+    subDistrictDropdown.addEventListener("change", async function () {
       const selectedOption = this.options[this.selectedIndex];
       const sub_dis_id = selectedOption.dataset.subDistrict;
       const district_id = selectedOption.dataset.district;
@@ -1076,7 +1100,7 @@
     });
 
     // Show Boundaries Button Event
-    showOnMapButton.addEventListener("click", async function() {
+    showOnMapButton.addEventListener("click", async function () {
       clearBoundary();
 
       try {
@@ -1106,12 +1130,18 @@
           map.fitBounds(currentBoundary.getBounds());
 
           currentBoundary
-            .bindPopup(`
+            .bindPopup(
+              `
               State: ${selectedLocation.state || "Not Selected"}<br>
               District: ${selectedLocation.district || "Not Selected"}<br>
-              Sub-District: ${selectedLocation.subDistrict || "Not Selected"}<br>
-              Villages: ${selectedLocation.villages.join(", ") || "None Selected"}
-            `)
+              Sub-District: ${
+                selectedLocation.subDistrict || "Not Selected"
+              }<br>
+              Villages: ${
+                selectedLocation.villages.join(", ") || "None Selected"
+              }
+            `
+            )
             .openPopup();
         } else {
           alert("No boundary data available for the selected location.");
@@ -1127,13 +1157,19 @@
   function initializeFormElements() {
     const stateDropdown = document.getElementById("state-dropdown");
     const districtDropdown = document.getElementById("district-dropdown");
-    const subDistrictDropdown = document.getElementById("sub_district-dropdown");
-    const villageCheckboxesContainer = document.getElementById("villageCheckboxesContainer");
+    const subDistrictDropdown = document.getElementById(
+      "sub_district-dropdown"
+    );
+    const villageCheckboxesContainer = document.getElementById(
+      "villageCheckboxesContainer"
+    );
     const showOnMapButton = document.getElementById("showOnMapButton");
 
     // Attach category checkbox listeners
     for (let i = 1; i <= 7; i++) {
-      document.getElementById(`check${i}`).addEventListener("change", updateSelectedList);
+      document
+        .getElementById(`check${i}`)
+        .addEventListener("change", updateSelectedList);
     }
 
     // Reset checkboxes
@@ -1143,7 +1179,13 @@
     updateSelectedList();
 
     // Initialize dropdowns and location selection
-    initializeLocationDropdowns(stateDropdown, districtDropdown, subDistrictDropdown, villageCheckboxesContainer, showOnMapButton);
+    initializeLocationDropdowns(
+      stateDropdown,
+      districtDropdown,
+      subDistrictDropdown,
+      villageCheckboxesContainer,
+      showOnMapButton
+    );
   }
 </script>
 {% endblock %}
