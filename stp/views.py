@@ -6,9 +6,10 @@ from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.shortcuts import render
-from .models import Data
+from typing import List
 import json
 import geopandas as gpd
+from .models import Villages,District,Sub_district,State
 from shapely.geometry import mapping
 from .service import weight_redisturb,normalize_data,rank_process,process_geometries,fix_geometry
 from shapely.geometry import Polygon, MultiPolygon
@@ -19,47 +20,32 @@ def stp_home(request):
 
 @csrf_exempt
 def GetStatesView(request):
-    states=Data.objects.values('id','name','state','district','subdistrict','village').filter(district=0,subdistrict=0,village=0).distinct()
-    print(states)
+    states=State.objects.values('state_id','state_name')
+    states=[{'id': state['state_id'],'name':state['state_name']} for state in states]
     return JsonResponse(list(states),safe=False)
 
 @csrf_exempt
 def GetDistrictView(request):
     if request.method == 'POST':
-        request=json.loads(request.body)
-        print("request of dis ",request)
-        state = request.get('state') ## fetch the state id
-        districts=Data.objects.values('name','id','state','district','subdistrict','village').filter(state=state,subdistrict=0,village=0)
-        districts=list(districts)
-        state_name=Data.objects.values('name').filter(state=state,subdistrict=0,village=0,district=0)
-        new_district=[d for d in districts if d['name']!=state_name[0]['name']]
-        new_district.sort(key=lambda x: x['name'])
-        return JsonResponse(new_district,safe=False)
+        state_id=int(json.loads(request.body).get('state'))
+        districts=District.objects.values('district_id','district_name').filter(state_id=state_id)
+        districts=[{'id': district['district_id'],'name':district['district_name']} for district in districts]
+        return JsonResponse(list(districts),safe=False)
 @csrf_exempt
 def GetSubDistrictView(request):
     if request.method == 'POST':
-        request=json.loads(request.body)
-        print("request of sub dis",request)
-        state=request.get('state')
-        district=request.get('district')
-        sub_district=Data.objects.values('name','id','state','district','subdistrict','village').filter(state=state,district=district,village=0)
-        new_sub_district=[d for d in sub_district if d['subdistrict']!=0]
-        new_sub_district.sort(key=lambda x: x['name'])
-        print("sub dis",list(new_sub_district))
-        return JsonResponse(list(new_sub_district),safe=False)
+        district_id=(json.loads(request.body).get('districts'))
+        sub_districts=list(Sub_district.objects.values('subdistrict_id','subdistrict_name').filter(district_id__in=district_id))
+        sub_districts=[{'id': sub_district['subdistrict_id'],'name':sub_district['subdistrict_name']} for sub_district in sub_districts]
+        return JsonResponse(list(sub_districts),safe=False)
 
 @csrf_exempt
 def  GetVillageView(request):
     if request.method == 'POST':
-        request=json.loads(request.body)
-        state=request.get('state')
-        district=request.get('district')
-        sub_district=request.get('sub_district')
-        village=Data.objects.values('name','id','state','district','subdistrict','village').filter(state=state,district=district,subdistrict=sub_district)
-        new_village=[d for d in village if d['village']!=0]
-        new_village.sort(key=lambda x: x['name'])
-        print("village",list(new_village))
-        return JsonResponse(list(new_village),safe=False)
+        sub_district_id=(json.loads(request.body).get('subDistricts'))
+        villages=list(Villages.objects.values('village_id','village_name').filter(subdistrict_id_id__in=sub_district_id))
+        villages=[{'id': village['village_id'],'name':village['village_name']} for village in villages]
+        return JsonResponse(list(villages),safe=False)
 
 @csrf_exempt
 def GetTableView(request):
@@ -98,10 +84,7 @@ def GetVillage_UP(request):
     try:
         try:
             request_data = json.loads(request.body)
-            villages_list_str=request_data.get('village_name')
-            villages_list=[]
-            villages_list.append(villages_list_str)
-   
+            villages_list=request_data.get('village_name')
         except json.JSONDecodeError:
             return JsonResponse({'error': 'Invalid JSON data'}, status=400)
         try:
@@ -113,16 +96,19 @@ def GetVillage_UP(request):
 
         # Filter geodataframe
         print("village_list",villages_list)
-        print("list is ",villages_list[0])
         filtered_gdf = gdf[gdf['NAME_1'].isin(villages_list)]
         print("filtered_gdf",filtered_gdf)
         coordinates = process_geometries(filtered_gdf)
         print("coor",coordinates)
-        coordinates=[coordinates]
-        return JsonResponse({'coordinates': coordinates},status=200)
+        if not coordinates:
+            return JsonResponse({'error': 'Failed to extract valid coordinates'}, status=500)
+
+        if len(coordinates) > 1:
+            coordinates = [coordinates]
+
+        return JsonResponse({'coordinates': coordinates})
 
     except Exception as e:
-        print("doine",str(e))
         return JsonResponse({'error': 'Internal server error'}, status=500)
 
 @csrf_exempt
@@ -142,7 +128,7 @@ def GetBoundry(request):
                         coords = [[float(x), float(y)] for x, y in polygon.exterior.coords]
                         multi_coords.append(coords)
                     coordinates.extend(multi_coords)
-                
+                    
             return JsonResponse({'coordinates': coordinates})
         except Exception as e:
             print(str(e))
@@ -150,7 +136,7 @@ def GetBoundry(request):
     if request.method == 'POST':
         try:
             # Read the shapefile
-            gdf = gpd.read_file('media/shapefile/all_district/States_Sub_District.shp')
+            gdf = gpd.read_file('media/shapefile/WFSServer/output.shp')
             coordinates = []
             request_data = json.loads(request.body)
             
@@ -207,43 +193,61 @@ def GetBoundry(request):
             
             # Filter data based on request
             try:
+                print("request data is ",request_data)
                 if request_data.get('villages'):
                     village_list = request_data['villages']
                     filtered_gdf = gdf[gdf['village'].isin(village_list)]
                 
-                elif request_data.get('sub_district'):
-                    # Get required parameters
-                    sub_district = request_data['sub_district']
-                    district = request_data.get('district')
-                    state = request_data.get('state')
-                    
-                    # Build filter conditions
-                    conditions = (gdf['sdtname'] == sub_district)
-                    if district:
-                        conditions &= (gdf['dtname'] == district)
-                    if state:
-                        conditions &= (gdf['stname'] == state)
-                    filtered_gdf = gdf[conditions]
+                elif request_data.get('subDistricts'):
+                    state = request_data['state']
+                    states_code=State.objects.values('state_id').filter(state_name=state)
+                    state_code=states_code[0]['state_id']
+                    if state_code<10:
+                        state_code=str(0)+str(state_code)
+                    state_code=str(state_code)
+                    district = request_data['districts']
+                    district_name=District.objects.values('district_name').filter(district_id__in=district)
+                    district_name=[d['district_name'] for d in district_name]
+
+                    print("now find the sub")
+                    sub_district_id = request_data['subDistricts']
+                    sub_dis=Sub_district.objects.values('subdistrict_name').filter(subdistrict_id__in=sub_district_id)
+                    sub_dis_name=[d['subdistrict_name'] for d in sub_dis]
+                    print("subdistrict name is ",sub_dis_name)
+                    filtered_gdf = gdf[(gdf['District'].isin(district_name)) & (gdf['state_code'] == state_code) & (gdf['Sub_Distri'].isin(sub_dis_name))]
+                    print(filtered_gdf)
                 
-                elif request_data.get('district'):
-                    # Get required parameters
-                    district = request_data['district']
-                    state = request_data.get('state')
-                    
-                    # Build filter conditions
-                    conditions = (gdf['dtname'] == district)
-                    if state:
-                        conditions &= (gdf['stname'] == state)
-                    filtered_gdf = gdf[conditions]
+                elif request_data.get('districts'):
+                    state = request_data['state']
+                    states_code=State.objects.values('state_id').filter(state_name=state)
+                    state_code=states_code[0]['state_id']
+                    if state_code<10:
+                        state_code=str(0)+str(state_code)
+                    state_code=str(state_code)
+                    print("statecode is ",state_code)
+                    district = request_data['districts']
+                    print("new district is ",district)
+                    #district name si 
+                    district_name=District.objects.values('district_name').filter(district_id__in=district)
+                    district_name=[d['district_name'] for d in district_name]
+                    print(list(district_name))
+                    filtered_gdf = gdf[(gdf['District'].isin(district_name)) & (gdf['state_code'] == state_code)]
+                    print("filtered_gdf is",filtered_gdf)
                 
                 elif request_data.get('state'):
                     state = request_data['state']
-                    filtered_gdf = gdf[gdf['stname'] == state]
+                    states_code=State.objects.values('state_id').filter(state_name=state)
+                    state_code=states_code[0]['state_id']
+                    if state_code<10:
+                        state_code=str(0)+str(state_code)
+                    state_code=str(state_code)
+                    print("statecode is ",state_code)
+                    filtered_gdf = gdf[gdf['state_code'] == state_code]
+                    print("filtered_gdf is",filtered_gdf)
                 
                 else:
                     return JsonResponse({'error': 'No valid geographic criteria provided'}, status=400)
-                    
-                # Check if we found any matching features
+
                 if filtered_gdf.empty:
                     return JsonResponse({'error': 'No matching geographic features found'}, status=404)
                     
@@ -263,10 +267,12 @@ def GetBoundry(request):
                     if geometry is not None:
                         process_geometry(geometry)
                 
-                # For MultiPolygon, ensure proper nesting
+                # Ensure we have some coordinates
+                if not coordinates:
+                    return JsonResponse({'error': 'Failed to extract valid coordinates'}, status=500)
+
                 if len(coordinates) > 1:
                     coordinates = [coordinates]
-                print("cordinates from subdistricvt ",coordinates)
                 
                 return JsonResponse({'coordinates': coordinates})
                 

@@ -1,0 +1,55 @@
+import json
+import csv
+from typing import Dict, List, Any
+
+def convert_geojson_to_csv(input_file: str, output_file: str, selected_features: List[str]):
+    try:
+        # Read GeoJSON file
+        with open(input_file, 'r', encoding='utf-8') as f:
+            geojson_data = json.load(f)
+        
+        # Extract features
+        if isinstance(geojson_data, dict):
+            features = geojson_data.get('features', [])
+        elif isinstance(geojson_data, list):
+            features = geojson_data
+        else:
+            raise ValueError("Invalid GeoJSON format")
+            
+        # Prepare CSV data
+        csv_data = []
+        for feature in features:
+            properties = feature.get('properties', {})
+            row = {key: properties.get(key, '') for key in selected_features}
+            csv_data.append(row)
+            
+        # Write to CSV
+        with open(output_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=selected_features)
+            writer.writeheader()
+            writer.writerows(csv_data)
+            
+        print(f"Successfully converted {len(features)} features to CSV: {output_file}")
+        
+    except Exception as e:
+        print(f"Error converting GeoJSON to CSV: {str(e)}")
+        raise
+
+# Example usage:
+if __name__ == '__main__':
+    # Specify which features you want to extract as a list
+    features_to_extract = [
+        "Subdistric", "Sub_Distri", "District_C", "District", 
+        "state_code", "State", "Total_Numb", "Total_Popu", 
+        "Average_Ho", "Total_Geog", "Forest_Are", "Area_under", 
+        "Barren___U", "Permanent_", "Land_Under", "Culturable", 
+        "Fallows_La", "Current_Fa", "Net_Area_S", "Total_Unir", 
+        "Area_Irrig", "Canals_Are", "Wells_Tube", "Tanks_Lake", 
+        "Waterfall_", "Unique", "st_area_sh", "st_length_"
+    ]
+    
+    convert_geojson_to_csv(
+        input_file='subdistrict_updated.geojson',
+        output_file='subdistrict_updated.csv',
+        selected_features=features_to_extract
+    )
