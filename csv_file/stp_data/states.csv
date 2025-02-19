@@ -1,39 +1,38 @@
 state_id,state_name
-1,JAMMU & KASHMIR
-2,HIMACHAL PRADESH
-3,PUNJAB
-4,CHANDIGARH
-5,UTTARAKHAND
-6,HARYANA
-7,NCT OF DELHI
-8,RAJASTHAN
-9,UTTAR PRADESH
-10,BIHAR
-11,SIKKIM
-12,ARUNACHAL PRADESH
-13,NAGALAND
-14,MANIPUR
-15,MIZORAM
-16,TRIPURA
-17,MEGHALAYA
-18,ASSAM
-19,WEST BENGAL
-20,JHARKHAND
-21,ODISHA
-22,CHHATTISGARH
-23,MADHYA PRADESH
-24,GUJARAT
-25,DIU AND DAMAN 
-26,LADAKH
-27,MAHARASHTRA
-28,ANDHRA PRADESH
-29,KARNATAKA
-30,GOA
-31,LAKSHADWEEP
-32,KERALA
-33,TAMIL NADU
-34,PUDUCHERRY
-35,ANDAMAN & NICOBAR ISLANDS
-36,TELANGANA
-37,DADRA AND NAGAR HAVELI 
-
+35,Andaman and Nicobar Islands
+28,Andhra Pradesh
+12,Arunachal Pradesh
+18,Assam 
+10,Bihar  	
+22,Chhattisgarh 
+4,Chandigarh  	
+25,Daman and Diu  	
+7,Delhi
+37,Dadra and Nagar Haveli  	
+30,Goa 
+24,Gujarat  	
+2,Himachal Pradesh  
+6,Haryana 
+20,Jharkhand  	
+1,Jammu and Kashmir  	
+29,Karnataka  
+32,Kerala  
+31,Lakshadweep  
+26,Ladakh
+27,Maharashtra  	
+17,Meghalaya  	
+14,Manipur 
+23,Madhya Pradesh
+15,Mizoram  	
+13,Nagaland  	
+21,Orissa  
+3,Punjab  	
+34,Pondicherry  	
+8,Rajasthan 
+11,Sikkim  	
+33,Tamil Nadu  	
+16,Tripura  
+36,Telangana
+5,Uttarakhand  
+9,Uttar Pradesh  	
+19,West Bengal  

@@ -28,6 +28,7 @@ def GetStatesView(request):
 def GetDistrictView(request):
     if request.method == 'POST':
         state_id=int(json.loads(request.body).get('state'))
+        print("state id is ",state_id)
         districts=District.objects.values('district_id','district_name').filter(state_id=state_id)
         districts=[{'id': district['district_id'],'name':district['district_name']} for district in districts]
         return JsonResponse(list(districts),safe=False)

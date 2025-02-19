@@ -39,13 +39,7 @@ def convert_geojson_to_csv(input_file: str, output_file: str, selected_features:
 if __name__ == '__main__':
     # Specify which features you want to extract as a list
     features_to_extract = [
-        "Subdistric", "Sub_Distri", "District_C", "District", 
-        "state_code", "State", "Total_Numb", "Total_Popu", 
-        "Average_Ho", "Total_Geog", "Forest_Are", "Area_under", 
-        "Barren___U", "Permanent_", "Land_Under", "Culturable", 
-        "Fallows_La", "Current_Fa", "Net_Area_S", "Total_Unir", 
-        "Area_Irrig", "Canals_Are", "Wells_Tube", "Tanks_Lake", 
-        "Waterfall_", "Unique", "st_area_sh", "st_length_"
+        "Sub_Dist_1", "District_1", "District_2", "state_co_1", "State_1", "Total_Nu_1", "Total_Po_1", "Average__1", "Total_Ge_1", "Forest_A_1", "Area_und_1",  "Subdistric",
     ]
     
     convert_geojson_to_csv(
