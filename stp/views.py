@@ -115,7 +115,7 @@ def GetVillage_UP(request):
 def GetBoundry(request):
     if request.method == 'GET':
         try:
-            gdf = gpd.read_file('media/shapefile/all_district/States_Sub_District.shp')
+            gdf = gpd.read_file('media/shapefile/WFSServer/subdistrict_updated.shp')
             coordinates = []
             
             for geometry in gdf.geometry:
@@ -136,7 +136,7 @@ def GetBoundry(request):
     if request.method == 'POST':
         try:
             # Read the shapefile
-            gdf = gpd.read_file('media/shapefile/WFSServer/output.shp')
+            gdf = gpd.read_file('media/shapefile/WFSServer/subdistrict_updated.shp')
             coordinates = []
             request_data = json.loads(request.body)
             

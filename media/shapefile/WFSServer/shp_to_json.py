@@ -22,7 +22,7 @@ def shapefile_to_geojson(input_shapefile, output_geojson):
 # Example usage
 if __name__ == "__main__":
     # Replace these paths with your actual file paths
-    input_file = "./output.shp"
-    output_file = "file.geojson"
+    input_file = "./subdistrict_updated.shp"
+    output_file = "subdistrict_updated.geojson"
     
     shapefile_to_geojson(input_file, output_file)
