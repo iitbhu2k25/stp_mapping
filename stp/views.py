@@ -134,6 +134,7 @@ def GetBoundry(request):
         except Exception as e:
             print(str(e))
             return JsonResponse({'error': str(e)}, status=500)
+        
     if request.method == 'POST':
         try:
             # Read the shapefile
@@ -200,50 +201,21 @@ def GetBoundry(request):
                     filtered_gdf = gdf[gdf['village'].isin(village_list)]
                 
                 elif request_data.get('subDistricts'):
-                    state = request_data['state']
-                    states_code=State.objects.values('state_id').filter(state_name=state)
-                    state_code=states_code[0]['state_id']
-                    if state_code<10:
-                        state_code=str(0)+str(state_code)
-                    state_code=str(state_code)
-                    district = request_data['districts']
-                    district_name=District.objects.values('district_name').filter(district_id__in=district)
-                    district_name=[d['district_name'] for d in district_name]
-
-                    print("now find the sub")
-                    sub_district_id = request_data['subDistricts']
-                    sub_dis=Sub_district.objects.values('subdistrict_name').filter(subdistrict_id__in=sub_district_id)
-                    sub_dis_name=[d['subdistrict_name'] for d in sub_dis]
-                    print("subdistrict name is ",sub_dis_name)
-                    filtered_gdf = gdf[(gdf['District'].isin(district_name)) & (gdf['state_code'] == state_code) & (gdf['Sub_Distri'].isin(sub_dis_name))]
+                    subdistrict = request_data['subDistricts']
+                    subdistrict=list(map(int,subdistrict))
+                    filtered_gdf = gdf[(gdf['Subdistric'].isin(subdistrict))]
                     print(filtered_gdf)
                 
                 elif request_data.get('districts'):
-                    state = request_data['state']
-                    states_code=State.objects.values('state_id').filter(state_name=state)
-                    state_code=states_code[0]['state_id']
-                    if state_code<10:
-                        state_code=str(0)+str(state_code)
-                    state_code=str(state_code)
-                    print("statecode is ",state_code)
                     district = request_data['districts']
-                    print("new district is ",district)
-                    #district name si 
-                    district_name=District.objects.values('district_name').filter(district_id__in=district)
-                    district_name=[d['district_name'] for d in district_name]
-                    print(list(district_name))
-                    filtered_gdf = gdf[(gdf['District'].isin(district_name)) & (gdf['state_code'] == state_code)]
+                    print("district_data ",district)
+                    district= list(map(int, district))
+                    filtered_gdf = gdf[(gdf['District_1'].isin(district))]
                     print("filtered_gdf is",filtered_gdf)
                 
                 elif request_data.get('state'):
-                    state = request_data['state']
-                    states_code=State.objects.values('state_id').filter(state_name=state)
-                    state_code=states_code[0]['state_id']
-                    if state_code<10:
-                        state_code=str(0)+str(state_code)
-                    state_code=str(state_code)
-                    print("statecode is ",state_code)
-                    filtered_gdf = gdf[gdf['state_code'] == state_code]
+                    state_code=int(request_data['stateId'])
+                    filtered_gdf = gdf[gdf['state_co_1'] == state_code]
                     print("filtered_gdf is",filtered_gdf)
                 
                 else:
