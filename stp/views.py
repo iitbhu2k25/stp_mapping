@@ -138,9 +138,17 @@ def GetBoundry(request):
     if request.method == 'POST':
         try:
             # Read the shapefile
-            gdf = gpd.read_file('media/shapefile/WFSServer/subdistrict_updated.shp')
-            coordinates = []
             request_data = json.loads(request.body)
+            villages =request_data['villages']
+            gdf=None
+            if len(villages)>0:
+                print("inside ")
+                gdf = gpd.read_file('media/shapefile/villages/Basin_Villages.shp')
+            else:
+                print("inside okay")
+                gdf = gpd.read_file('media/shapefile/WFSServer/subdistrict_updated.shp')
+            coordinates = []
+            
             
             def fix_geometry(geometry):
                 """Fix invalid geometries and handle topology exceptions"""
@@ -198,7 +206,8 @@ def GetBoundry(request):
                 print("request data is ",request_data)
                 if request_data.get('villages'):
                     village_list = request_data['villages']
-                    filtered_gdf = gdf[gdf['village'].isin(village_list)]
+                    filtered_gdf = gdf[gdf['NAME'].isin(village_list)]
+                    print(filtered_gdf)
                 
                 elif request_data.get('subDistricts'):
                     subdistrict = request_data['subDistricts']
